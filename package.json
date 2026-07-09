@@ -1,22 +1,53 @@
 {
   "name": "lugechat",
   "version": "1.0.0",
-  "main": "index.ts",
+  "main": "expo-router/entry",
   "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "@supabase/supabase-js": "^2.108.2",
     "expo": "~56.0.12",
+    "expo-apple-authentication": "~56.0.4",
+    "expo-audio": "~56.0.8",
+    "expo-build-properties": "~56.0.19",
+    "expo-constants": "~56.0.18",
+    "expo-dev-client": "~56.0.20",
+    "expo-device": "~56.0.4",
+    "expo-file-system": "~56.0.8",
+    "expo-linking": "~56.0.14",
+    "expo-location": "~56.0.18",
+    "expo-native-wechat": "^0.3.1",
+    "expo-router": "~56.2.11",
+    "expo-secure-store": "~56.0.4",
+    "expo-sensors": "~56.0.6",
+    "expo-speech": "~56.0.0",
+    "expo-speech-recognition": "~56.0.1",
+    "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
-    "react-native": "0.85.3"
+    "react-native": "0.85.3",
+    "react-native-gesture-handler": "~2.31.1",
+    "react-native-maps": "1.27.2",
+    "react-native-reanimated": "4.3.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "4.25.2",
+    "react-native-worklets": "^0.8.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "babel-preset-expo": "^56.0.15",
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "start": "expo start --go",
+    "start:dev": "expo start",
+    "start:clean": "expo start -c --go",
+    "start:ios": "bash scripts/dev-ios.sh",
+    "start:lan": "expo start --go",
+    "android": "expo run:android",
+    "ios": "bash scripts/dev-ios.sh --ios",
+    "web": "expo start --web",
+    "build:ios": "bash scripts/build-ios-dev.sh",
+    "build:ios:device": "bash scripts/build-ios-device.sh"
   },
   "private": true
 }

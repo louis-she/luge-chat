@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["9UJ72U7F8J.com.shexiaoshu.lugechat"],
+        "components": [
+          {
+            "/": "/app/*",
+            "comment": "WeChat Universal Link for 路鸽"
+          }
+        ]
+      }
+    ]
+  }
+}

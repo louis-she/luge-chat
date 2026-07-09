@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="下载路鸽 — 自驾游 AI 智能语音导游 App，支持 iOS 与 Android。"
+    />
+    <title>下载路鸽 — iOS & Android</title>
+    <link rel="icon" href="/assets/icon-28.png" type="image/png" sizes="28x28" />
+    <link rel="icon" href="/assets/icon-108.png" type="image/png" sizes="108x108" />
+    <link rel="apple-touch-icon" href="/assets/icon-108.png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      .app-hero {
+        min-height: calc(100vh - 140px);
+        display: flex;
+        align-items: center;
+        padding: 48px 0 64px;
+      }
+
+      .app-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 48px 40px;
+        box-shadow: var(--shadow);
+        text-align: center;
+      }
+
+      .app-icon {
+        width: 88px;
+        height: 88px;
+        margin: 0 auto 24px;
+        border-radius: 22px;
+        display: block;
+        object-fit: cover;
+        box-shadow: 0 12px 32px rgba(37, 99, 235, 0.2);
+      }
+
+      .app-card h1 {
+        margin: 0 0 12px;
+        font-size: clamp(28px, 4vw, 36px);
+        letter-spacing: -0.02em;
+      }
+
+      .app-lead {
+        margin: 0 auto 32px;
+        max-width: 480px;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .download-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+        max-width: 520px;
+        margin: 0 auto 24px;
+      }
+
+      .download-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        padding: 20px 24px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        text-decoration: none;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+
+      .download-btn:hover {
+        text-decoration: none;
+        border-color: #93c5fd;
+        box-shadow: 0 8px 24px rgba(37, 99, 235, 0.12);
+      }
+
+      .download-btn strong {
+        font-size: 16px;
+      }
+
+      .download-btn span {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .coming-soon {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .app-note {
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      .app-note a {
+        font-weight: 600;
+      }
+
+      @media (max-width: 640px) {
+        .app-card {
+          padding: 32px 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/">
+          <img
+            class="brand-mark"
+            src="/assets/icon-108.png"
+            alt="路鸽"
+            width="40"
+            height="40"
+          />
+          <span>
+            <span class="brand-name">路鸽</span>
+            <span class="brand-tag">Luge · 自驾旅途 AI 导游</span>
+          </span>
+        </a>
+        <nav class="nav" aria-label="主导航">
+          <a href="/">首页</a>
+          <a href="/#product">产品介绍</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="app-hero">
+      <div class="container">
+        <div class="app-card">
+          <img
+            class="app-icon"
+            src="/assets/icon-108.png"
+            alt="路鸽 App 图标"
+            width="88"
+            height="88"
+          />
+          <h1>下载路鸽</h1>
+          <p class="app-lead">
+            开车上路，路鸽陪你聊沿途。iOS 与 Android 版本筹备中，敬请期待。
+          </p>
+
+          <div class="download-grid">
+            <a class="download-btn" href="/">
+              <strong>App Store</strong>
+              <span>iPhone / iPad</span>
+              <span class="coming-soon">即将上线</span>
+            </a>
+            <a class="download-btn" href="/">
+              <strong>Android</strong>
+              <span>各大应用商店</span>
+              <span class="coming-soon">即将上线</span>
+            </a>
+          </div>
+
+          <p class="app-note">
+            正式下载链接上线后将更新本页 ·
+            <a href="/">返回首页了解更多</a>
+          </p>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <p>
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">
+            蜀ICP备2026033262号
+          </a>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

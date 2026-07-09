@@ -1,0 +1,27 @@
+# api.luge.chat — Supabase API + Studio（原有配置，部署时保留）
+{$PROXY_DOMAIN} {
+    @supabase_api path /auth/v1/* /rest/v1/* /graphql/v1 /realtime/v1/* /storage/v1/* /functions/v1/* /mcp /sso/*
+
+    handle @supabase_api {
+        reverse_proxy kong:8000
+    }
+
+    handle {
+        basic_auth {
+            {$PROXY_AUTH_USERNAME} {$PROXY_AUTH_PASSWORD}
+        }
+
+        reverse_proxy studio:3000
+    }
+
+    header -server
+}
+
+# luge.chat / www.luge.chat — 备案静态主页
+luge.chat, www.luge.chat {
+    root * /srv/www
+    encode gzip
+    header /.well-known/apple-app-site-association Content-Type application/json
+    file_server
+    header -server
+}

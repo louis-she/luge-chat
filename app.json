@@ -1,15 +1,24 @@
 {
   "expo": {
-    "name": "lugechat",
+    "name": "路鸽",
     "slug": "lugechat",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "scheme": ["lugechat", "wx670d93537c72d57a"],
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "bundleIdentifier": "com.shexiaoshu.lugechat",
+      "supportsTablet": true,
+      "usesAppleSignIn": true,
+      "associatedDomains": ["applinks:luge.chat"],
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "路鸽需要获取您的位置，以便在自驾途中为您讲解沿途风景与地理知识。",
+        "LSApplicationQueriesSchemes": ["weixin", "weixinULAPI", "weixinURLParamsAPI"]
+      }
     },
     "android": {
+      "package": "com.shexiaoshu.lugechat",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -20,6 +29,30 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-dev-client",
+      "expo-audio",
+      "expo-secure-store",
+      "expo-router",
+      "expo-splash-screen",
+      "expo-apple-authentication",
+      "expo-native-wechat",
+      "./plugins/withIosSimulatorDestinations.js",
+      "./plugins/withWechatSimArm64.js",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "路鸽需要获取您的位置，以便在自驾途中为您讲解沿途风景与地理知识。"
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "路鸽需要使用麦克风，以便您语音向路鸽提问。",
+          "speechRecognitionPermission": "路鸽需要使用语音识别，将您说的话转成文字以便回答。"
+        }
+      ]
+    ]
   }
 }

@@ -1,0 +1,60 @@
+---
+description: 路鸽核心产品架构、技术栈与 AI 开发指南 (2026)
+alwaysApply: true
+---
+
+# 路鸽 (Luge) — 产品架构与开发指南
+
+## 产品愿景
+
+**路鸽**：专为自驾游打造的「实时位置 + 地理空间知识库」AI 智能语音导游 App。
+
+- **场景**：自驾途中（高速/国道/景区），后台低功耗持续采集 GPS；接近地理节点（桥梁、风景、遗迹、八卦地标）时，自动触发大模型，以「打电话」般的流式全双工语音讲解周边风情与历史。
+- **商业化**：先跑通国内市场（App Store + 安卓各大商店/酷安）。
+- **主体**：成都蛇小鼠科技有限公司
+- **域名**：`luge.chat`（主站，备案中）/ `api.luge.chat`（后端网关）/ `dorapiano.com`（兄弟项目）
+
+## 核心用户场景（车载导游通话）
+
+用户开车时可直接打开 App 与大模型通话，随时基于当前位置提问，例如：
+
+1. 左边这条河叫什么？有什么历史？上游水从哪来？
+2. 右边那座雕像是啥？有什么典故？
+3. 现在这个镇子叫什么？经济、房价怎么样？
+4. 前面大概 20 公里外那座雪山是什么山？
+
+## 核心业务逻辑
+
+1. **持续位置监听**：`expo-location` 后台高效、省电 GPS 采集
+2. **空间几何撞库（PostGIS RAG）**：手机上报 `Point(Lng, Lat)` → PostGIS 半径搜索 / Buffer / 地理围栏 → 抓取周边风景/八卦数据作为 RAG 上下文
+3. **极速语音流**：对接**火山引擎豆包大模型**；全线 Streaming / WebSocket / WebRTC 长连接；TTS 延迟 < 1s，确保「车到、话起」
+
+## 技术栈
+
+| 层 | 选型 |
+|----|------|
+| 前端 | **Expo (RN) + TypeScript 严格模式** + Expo Router |
+| 后端 | **FastAPI (Python)** 或 Node.js (TS) 自建 Web Server |
+| 数据库 | **Supabase 自建** = PostgreSQL 17 + **PostGIS** |
+| 部署 | 腾讯云轻量 Ubuntu 24.04；`api.luge.chat` 经 **Caddy** 自动 HTTPS |
+| 语音 AI | 火山引擎豆包 |
+
+服务器已做高并发内核调优（`limits.conf` fd 1048576，`sysctl` TCP 缓冲区与 TIME_WAIT 重用）。
+
+## 当前阶段约束
+
+- 后端统一使用 **`https://api.luge.chat`**（开发连 `dev` schema，生产连 `public`）
+- 主站 **`luge.chat`** 已上线（备案页）
+- **真机路测**：真机不能连 `127.0.0.1`；需 HTTPS，可用 LocalTunnel / cpolar 做临时穿透
+- **国内镜像**：服务器 Docker 源锁定 `mirror.ccs.tencentyun.com`；安装依赖优先阿里云/腾讯云镜像
+
+## 国内生态
+
+- **登录**：Apple Login + 微信一键登录
+- **微信 OAuth**：Supabase 不原生支持 → `前端拿微信 code → 自建后端换 OpenID → 后端签发自定义 Supabase JWT`
+
+## AI 协同编码偏好
+
+- **风格**：Vibe Coding — 反应式、声明式、极简；拒绝过度设计，逻辑链越短越好
+- **PostGIS 铁律**：经纬度字段**必须**用 `geometry`/`geography` 类型 + **GIST 空间索引**，禁止 float 存经纬度
+- **响应语言**：自然、硬核、幽默的中文；直接给干货代码和前因后果

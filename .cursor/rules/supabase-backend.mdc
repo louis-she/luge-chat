@@ -1,0 +1,40 @@
+---
+description: Supabase 后端环境与线上地址
+alwaysApply: true
+---
+
+# Supabase 后端
+
+路鸽（lugechat）使用 **Supabase** 作为后端（Database、Auth、Storage、Realtime、Edge Functions），**自建部署于 `api.luge.chat`**。
+
+## 环境
+
+| 环境 | API 地址 | DB Schema | 说明 |
+|------|----------|-----------|------|
+| 开发 | `https://api.luge.chat` | `dev` | Expo `__DEV__` 默认 |
+| 生产 | `https://api.luge.chat` | `public` | Release 构建默认 |
+
+客户端通过环境变量配置，例如 `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` / `EXPO_PUBLIC_SUPABASE_DB_SCHEMA`。
+
+## 仓库目录
+
+- 迁移 SQL：`supabase/migrations/`
+- Edge Functions：`supabase/functions/`
+- 种子数据：`supabase/seed.sql`
+
+## 线上部署
+
+- 服务器：`luge@luge.chat`，Docker 部署于 `~/supabase-project`
+- 对外域名：`api.luge.chat`（HTTPS，端口 443）
+- API 路径：
+  - REST：`/rest/v1/`
+  - Auth：`/auth/v1/`
+  - Storage：`/storage/v1/`
+  - Realtime：`/realtime/v1/`
+  - Functions：`/functions/v1/`
+
+## 开发约定
+
+- 使用 `@supabase/supabase-js` 连接后端
+- Schema 变更写在 `supabase/migrations/`，在服务器 `dev` schema 验证后再推到 `public`
+- 密钥从服务器 `sh run.sh secrets` 获取，**不要提交到 git**
