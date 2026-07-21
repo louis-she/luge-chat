@@ -277,19 +277,108 @@ function parsePoiRating(poi: AmapPoi): number | null {
   return null
 }
 
-async function amapRatedScenicPois(lat: number, lng: number, minRating: number) {
+type ScenicPoiRow = {
+  name: string
+  type: string
+  address: string
+  rating: number | null
+  distance_m: number
+  lat: number | null
+  lng: number | null
+  amap_poi_id: string | null
+}
+
+type ProactiveCandidate = {
+  name: string
+  type: string
+  distance_m: number
+  lat: number
+  lng: number
+  amap_poi_id: string | null
+  spoken_key: string
+}
+
+function normalizePoiNameKey(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/(旅游区|风景区|景区|公园|度假区)$/u, '')
+}
+
+function spokenKeysForPoi(name: string, amapPoiId?: string | null): string[] {
+  const keys: string[] = []
+  const nk = normalizePoiNameKey(name)
+  if (nk) keys.push(nk)
+  if (amapPoiId?.trim()) keys.push(`id:${amapPoiId.trim()}`)
+  return keys
+}
+
+/** 「芙蓉岛公园一号馆」与「芙蓉岛公园」等近距离同名簇合并 */
+function dedupeProactiveCandidates(
+  rows: ProactiveCandidate[],
+  max = 12,
+): ProactiveCandidate[] {
+  const sorted = [...rows].sort((a, b) => a.distance_m - b.distance_m)
+  const kept: ProactiveCandidate[] = []
+
+  for (const row of sorted) {
+    const key = normalizePoiNameKey(row.name)
+    const twin = kept.find((k) => {
+      const kk = normalizePoiNameKey(k.name)
+      if (!key || !kk) return false
+      const near =
+        haversineM(row.lat, row.lng, k.lat, k.lng) < 700 ||
+        Math.abs(row.distance_m - k.distance_m) < 400
+      if (!near) return false
+      return key === kk || key.includes(kk) || kk.includes(key)
+    })
+    if (!twin) {
+      kept.push(row)
+    } else {
+      // 保留更短、更像「主景点」的名字
+      if (row.name.length + 2 < twin.name.length) {
+        const idx = kept.indexOf(twin)
+        kept[idx] = row
+      }
+    }
+    if (kept.length >= max) break
+  }
+  return kept
+}
+
+function parseSpokenPoiKeys(body: Record<string, unknown>): Set<string> {
+  const raw = body?.spoken_poi_keys
+  if (!Array.isArray(raw)) return new Set()
+  return new Set(
+    raw
+      .map((x) => String(x ?? '').trim().toLowerCase())
+      .filter(Boolean),
+  )
+}
+
+function isSpokenCandidate(c: ProactiveCandidate, spoken: Set<string>) {
+  if (spoken.size === 0) return false
+  return spokenKeysForPoi(c.name, c.amap_poi_id).some((k) => spoken.has(k.toLowerCase()))
+}
+
+function isAmapScenicType(type: string | undefined | null) {
+  return Boolean(type && type.includes('风景名胜'))
+}
+
+async function amapRatedScenicPois(lat: number, lng: number): Promise<ScenicPoiRow[]> {
   if (!AMAP_WEB_KEY) return []
 
   const data = await amapGet<{ pois?: AmapPoi[] }>('/v3/place/around', {
     location: `${lng.toFixed(6)},${lat.toFixed(6)}`,
     types: '风景名胜',
     radius: '8000',
-    offset: '15',
+    offset: '25',
     extensions: 'all',
     sortrule: 'weight',
   })
 
-  const rows = (data?.pois ?? [])
+  return (data?.pois ?? [])
     .map((poi) => {
       const pos = poi.location ? parseAmapLngLat(poi.location) : null
       const rating = parsePoiRating(poi)
@@ -298,20 +387,73 @@ async function amapRatedScenicPois(lat: number, lng: number, minRating: number) 
         : pos
           ? Math.round(haversineM(lat, lng, pos.lat, pos.lng))
           : null
+      if (distance_m == null) return null
+      // 高德偶发串类，二次卡死只留风景名胜
+      if (!isAmapScenicType(poi.type)) return null
       return {
         name: poi.name ?? '未命名',
         type: poi.type ?? '',
         address: poi.address ?? '',
         rating,
         distance_m,
-      }
+        lat: pos?.lat ?? null,
+        lng: pos?.lng ?? null,
+        amap_poi_id: poi.id ?? null,
+      } satisfies ScenicPoiRow
     })
-    .filter((row) => row.distance_m != null)
+    .filter((row): row is ScenicPoiRow => row != null)
+}
 
-  if (minRating > 0) {
-    return rows.filter((row) => row.rating != null && row.rating >= minRating)
+function buildProactiveCandidates(scenic: ScenicPoiRow[]): ProactiveCandidate[] {
+  const raw: ProactiveCandidate[] = []
+  for (const p of scenic) {
+    if (p.lat == null || p.lng == null) continue
+    if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue
+    if (!isAmapScenicType(p.type)) continue
+    raw.push({
+      name: p.name,
+      type: p.type || '风景名胜',
+      distance_m: p.distance_m,
+      lat: p.lat,
+      lng: p.lng,
+      amap_poi_id: p.amap_poi_id,
+      spoken_key: normalizePoiNameKey(p.name),
+    })
   }
-  return rows
+  return dedupeProactiveCandidates(raw, 12)
+}
+
+function matchCandidateByName(
+  candidates: ProactiveCandidate[],
+  poiName: string,
+): ProactiveCandidate | null {
+  const want = poiName.trim()
+  if (!want) return null
+  const exact = candidates.find((c) => c.name === want)
+  if (exact) return exact
+  const nk = normalizePoiNameKey(want)
+  return (
+    candidates.find((c) => normalizePoiNameKey(c.name) === nk) ??
+    candidates.find((c) => {
+      const ck = normalizePoiNameKey(c.name)
+      return Boolean(nk && ck && (ck.includes(nk) || nk.includes(ck)))
+    }) ??
+    null
+  )
+}
+
+function candidateToMapHit(c: ProactiveCandidate): MapHit {
+  return {
+    name: c.name,
+    category: c.type,
+    distance_m: c.distance_m,
+    direction: '附近',
+    source: 'amap',
+    lat: c.lat,
+    lng: c.lng,
+    amap_poi_id: c.amap_poi_id,
+    tags: { name: c.name, type: c.type },
+  }
 }
 
 async function amapGet<T>(path: string, params: Record<string, string>) {
@@ -765,28 +907,30 @@ async function askDeepseek(
   return text
 }
 
-const PROACTIVE_GUIDE_PROMPT = `你是路鸽的主动讲解调度员。用户正在自驾，没有主动提问。你只会收到当前位置、地图检索与可选的历史足迹。
+const PROACTIVE_GUIDE_PROMPT = `你是路鸽的主动讲解调度员。用户正在自驾，系统已经触发一次主动讲解机会。
 
-任务：判断是否值得主动开口讲 **一件事**。默认必须 skip。
+你会收到一份「候选 POI 列表」（已去重）。你的任务：必须从该列表中挑选 **恰好一个** POI，写一段口语讲解。
 
 规则：
-- 城市里 POI 很多，宁可不讲，也不要罗列；每次最多 speak 一个对象。
-- 优先：附近/前方有辨识度的山川、河流、名胜、古镇、桥梁、垭口等；与用户历史足迹相关且值得重温的点。
-- 若地图上下文含「沉淀讲解」，可吸收其要点，用自己的口语重新讲述，勿照读。
-- 避免：楼盘、小区、商铺名；泛泛的「附近有很多公园」；重复无价值的常识。
-- 若用户设置了景点评分门槛，打算讲「景点类 POI」时其 rating 必须达到门槛；河流、山川等无评分地标不受此限。
-- 用户正在高速/郊野、窗外景观明显变化时，可更积极；纯市区通勤可更保守。
-- speak 时 text 为 80～160 字口语化中文，适合 TTS，不要 markdown。
+- **必须**选择列表中的一个对象；poi_name 必须与列表里某一项的名称完全一致（逐字相同）。
+- 禁止编造列表里没有的地名；禁止一次讲多个对象。
+- 优先：辨识度高、更适合窗外一瞥的名胜、公园、景区、古迹等风景名胜；与用户历史足迹相关且值得重温的点。
+- 候选列表已限定为「风景名胜」，不要扩展到河流、乡镇、商铺等其它类型。
+- 城市里 POI 多时，挑一个最有讲头的，不要罗列。
+- 若上下文含「沉淀讲解」，可吸收要点，用自己的口语重述，勿照读。
+- 避免：楼盘、小区、商铺；泛泛的「附近有很多公园」。
+- text 为 80～160 字口语化中文，适合 TTS，不要 markdown。
+- 仅当候选列表为空时，才输出 action=skip。
 
-输出 JSON：{"action":"skip"|"speak","reason":"简短原因","text":"..."}
-action=skip 时 text 为空字符串。只输出 JSON。`
+输出 JSON：{"action":"speak"|"skip","poi_name":"列表中的名称","reason":"简短原因","text":"..."}
+action=speak 时 text 与 poi_name 必填；action=skip 时 text 与 poi_name 均为空字符串。只输出 JSON。`
 
 async function proactiveGuideDecision(
   userContent: string,
   logPrompt: (label: string, messages: Array<{ role: string; content: string }>) => void,
 ) {
   if (!DEEPSEEK_API_KEY) {
-    return { action: 'skip' as const, reason: 'no api key', text: '' }
+    return { action: 'skip' as const, reason: 'no api key', text: '', poi_name: '' }
   }
 
   const messages = [
@@ -813,28 +957,35 @@ async function proactiveGuideDecision(
 
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    return { action: 'skip' as const, reason: 'llm failed', text: '' }
+    return { action: 'skip' as const, reason: 'llm failed', text: '', poi_name: '' }
   }
 
   const raw = data?.choices?.[0]?.message?.content
   if (typeof raw !== 'string' || !raw.trim()) {
-    return { action: 'skip' as const, reason: 'empty llm', text: '' }
+    return { action: 'skip' as const, reason: 'empty llm', text: '', poi_name: '' }
   }
 
   try {
     const parsed = JSON.parse(raw.replace(/```(?:json)?\s*([\s\S]*?)```/i, '$1').trim())
     const action = String(parsed.action ?? 'skip').toLowerCase()
     const text = stripModelThinking(String(parsed.text ?? ''))
+    const poi_name = String(parsed.poi_name ?? '').trim()
     if (action === 'speak' && text.trim()) {
-      return { action: 'speak' as const, reason: String(parsed.reason ?? ''), text: text.trim() }
+      return {
+        action: 'speak' as const,
+        reason: String(parsed.reason ?? ''),
+        text: text.trim(),
+        poi_name,
+      }
     }
     return {
       action: 'skip' as const,
       reason: String(parsed.reason ?? 'not interesting'),
       text: '',
+      poi_name: '',
     }
   } catch {
-    return { action: 'skip' as const, reason: 'bad json', text: '' }
+    return { action: 'skip' as const, reason: 'bad json', text: '', poi_name: '' }
   }
 }
 
@@ -899,7 +1050,7 @@ async function processProactiveGuide(
     body?.heading == null || body?.heading === '' ? null : Number(body.heading)
   const heading =
     headingRaw != null && Number.isFinite(headingRaw) ? headingRaw : null
-  const minPoiRating = Math.max(0, Number(body?.min_poi_rating) || 0)
+  const spokenKeys = parseSpokenPoiKeys(body)
 
   dbg.mark('主动讲解请求')
 
@@ -916,12 +1067,19 @@ async function processProactiveGuide(
   }
   dbg.mark('额度扣减', `剩余 ${quota.remaining}/${quota.limit}`)
 
-  dbg.mark('地图检索', '开始（缓存 + 高德全地理 POI）')
-  const { map_hit: mapHit, amapRegeo } = await findMapContext(latitude, longitude, heading, dbg)
+  dbg.mark('高德逆地理', '开始')
+  const regeo = await amapRegeoContext(latitude, longitude)
+  const amapRegeo = regeo.text
 
-  dbg.mark('高德景点评分参考', minPoiRating > 0 ? `门槛 ≥${minPoiRating}` : '未启用')
-  const scenicPois =
-    minPoiRating > 0 ? await amapRatedScenicPois(latitude, longitude, minPoiRating) : []
+  dbg.mark('高德景点候选', '仅 8km 风景名胜')
+  const scenicPois = await amapRatedScenicPois(latitude, longitude)
+  const allCandidates = buildProactiveCandidates(scenicPois)
+  const candidates = allCandidates.filter((c) => !isSpokenCandidate(c, spokenKeys))
+  dbg.mark(
+    '候选去重',
+    `原始 ${allCandidates.length} → 当日未讲 ${candidates.length}` +
+      (spokenKeys.size ? `（已讲键 ${spokenKeys.size}）` : ''),
+  )
 
   const geoHint = coordsGeoHint(latitude, longitude)
 
@@ -940,27 +1098,47 @@ async function processProactiveGuide(
     }
   }
 
-  const scenicHint =
-    minPoiRating > 0
-      ? scenicPois.length > 0
-        ? scenicPois
-            .slice(0, 6)
-            .map(
-              (p, i) =>
-                `${i + 1}. ${p.name}（${p.type || '景点'}）距此 ${p.distance_m}m` +
-                (p.rating != null ? `，评分 ${p.rating}` : '，无评分'),
-            )
-            .join('\n')
-        : `（8km 内无评分 ≥ ${minPoiRating} 的景点）`
-      : '（未启用景点评分门槛）'
+  const quotaPayload = {
+    tier: quota.tier,
+    remaining: quota.remaining,
+    limit: quota.limit,
+  }
+
+  if (candidates.length === 0) {
+    dbg.mark('主动讲解判定完成', 'skip · 无可用候选')
+    const payload: Record<string, unknown> = {
+      proactive: true,
+      skipped: true,
+      skip_reason: allCandidates.length === 0 ? '附近无候选 POI' : '附近候选今日均已讲过',
+      answer: '',
+      map_hit: null,
+      footprint: null,
+      quota: quotaPayload,
+    }
+    if (includeDebugPayload) {
+      payload.debug = {
+        timeline: dbg.steps(),
+        total_ms: dbg.total(),
+        logged_in: Boolean(userId),
+        user_id: userId,
+        candidates: allCandidates.map((c) => c.name),
+      }
+    }
+    return payload
+  }
+
+  const candidateHint = candidates
+    .map(
+      (p, i) =>
+        `${i + 1}. ${p.name}（${p.type || '景点'}）距此 ${p.distance_m}m` +
+        (p.amap_poi_id ? ` · id=${p.amap_poi_id}` : ''),
+    )
+    .join('\n')
 
   const userContent = [
     '## 用户位置',
     `纬度 ${latitude.toFixed(6)}，经度 ${longitude.toFixed(6)}`,
     heading != null ? `朝向约 ${Math.round(heading)}°` : '朝向未知',
-    '',
-    '## 用户设置',
-    `景点评分门槛：${minPoiRating > 0 ? `${minPoiRating} 分以上（仅约束景点类 POI）` : '不限'}`,
     '',
     '## 坐标地理提示',
     geoHint,
@@ -968,11 +1146,8 @@ async function processProactiveGuide(
     '## 高德逆地理',
     amapRegeo ?? '（未获取）',
     '',
-    '## 地图检索（优先对象）',
-    buildMapSection(mapHit),
-    '',
-    '## 高德景点 POI（评分参考，风景名胜）',
-    scenicHint,
+    '## 候选 POI 列表（仅风景名胜；必须从中选恰好一个）',
+    candidateHint,
     '',
     '## 用户历史足迹（30km 内）',
     footprintHint || '（无）',
@@ -980,23 +1155,40 @@ async function processProactiveGuide(
 
   dbg.mark('主动讲解判定开始')
   const decision = await proactiveGuideDecision(userContent, dbg.logPrompt.bind(dbg))
+
+  let selected =
+    decision.action === 'speak' ? matchCandidateByName(candidates, decision.poi_name) : null
+  let speakText = decision.text.trim()
+
+  // 有候选时强制开口：名称对不上 / 空文案时回退到最近候选
+  if (!selected) {
+    selected = candidates[0]
+    dbg.mark(
+      '主动讲解回退',
+      decision.poi_name
+        ? `名称「${decision.poi_name}」未命中，改用 ${selected.name}`
+        : `未选点，改用 ${selected.name}`,
+    )
+  }
+  if (!speakText) {
+    speakText = `我们附近是${selected.name}，窗外留意一下这个地方，有机会可以多看一眼。`
+    dbg.mark('主动讲解回退', '空文案，使用兜底口播')
+  }
+
   dbg.mark(
     '主动讲解判定完成',
-    `${decision.action}${decision.reason ? ` · ${decision.reason}` : ''}`,
+    `speak · ${selected.name}${decision.reason ? ` · ${decision.reason}` : ''}`,
   )
 
+  const selectedHit = candidateToMapHit(selected)
   const payload: Record<string, unknown> = {
     proactive: true,
-    skipped: decision.action !== 'speak',
-    skip_reason: decision.action === 'skip' ? decision.reason : null,
-    answer: decision.action === 'speak' ? decision.text : '',
-    map_hit: decision.action === 'speak' ? mapHitToPayload(mapHit) : null,
+    skipped: false,
+    skip_reason: null,
+    answer: speakText.trim(),
+    map_hit: mapHitToPayload(selectedHit),
     footprint: null,
-    quota: {
-      tier: quota.tier,
-      remaining: quota.remaining,
-      limit: quota.limit,
-    },
+    quota: quotaPayload,
   }
 
   if (includeDebugPayload) {
@@ -1005,10 +1197,47 @@ async function processProactiveGuide(
       total_ms: dbg.total(),
       logged_in: Boolean(userId),
       user_id: userId,
+      selected_poi: selected.name,
+      candidates: candidates.map((c) => c.name),
     }
   }
 
   return payload
+}
+
+/** 开发者地图：候选主动讲解 POI，不扣次、不调 LLM */
+async function processProactivePreview(
+  body: Record<string, unknown>,
+  dbg: ReturnType<typeof createDbg>,
+) {
+  const latitude = Number(body?.latitude)
+  const longitude = Number(body?.longitude)
+  const headingRaw =
+    body?.heading == null || body?.heading === '' ? null : Number(body.heading)
+  const heading =
+    headingRaw != null && Number.isFinite(headingRaw) ? headingRaw : null
+  const spokenKeys = parseSpokenPoiKeys(body)
+
+  dbg.mark('主动讲解预览', '仅风景名胜')
+  const scenicPois = await amapRatedScenicPois(latitude, longitude)
+  const allCandidates = buildProactiveCandidates(scenicPois)
+  const candidates = allCandidates
+    .filter((c) => !isSpokenCandidate(c, spokenKeys))
+    .slice(0, 40)
+    .map((p) => ({
+      name: p.name,
+      lat: p.lat,
+      lng: p.lng,
+      rating: null as number | null,
+      distance_m: p.distance_m,
+      type: p.type,
+    }))
+
+  return {
+    preview: true,
+    candidates,
+    forward_map_hit: null,
+  }
 }
 
 async function shouldAnswerMessage(
@@ -1397,7 +1626,13 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json()
-    const mode = body?.mode === 'proactive' ? 'proactive' : 'ask'
+    const modeRaw = typeof body?.mode === 'string' ? body.mode : 'ask'
+    const mode =
+      modeRaw === 'proactive'
+        ? 'proactive'
+        : modeRaw === 'proactive_preview'
+          ? 'proactive_preview'
+          : 'ask'
     const message = body?.message as string | undefined
     const latitude = Number(body?.latitude)
     const longitude = Number(body?.longitude)
@@ -1410,6 +1645,15 @@ Deno.serve(async (req) => {
 
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return json({ error: 'latitude and longitude are required' }, 400)
+    }
+
+    if (mode === 'proactive_preview') {
+      if (req.headers.get('x-luge-debug') !== '1') {
+        return json({ error: 'proactive_preview requires X-Luge-Debug' }, 403)
+      }
+      const dbg = createDbg(false)
+      const payload = await processProactivePreview(body, dbg)
+      return json(payload)
     }
 
     if (mode === 'ask' && !message?.trim()) {

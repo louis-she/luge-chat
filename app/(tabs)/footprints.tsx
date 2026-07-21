@@ -1,7 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -67,9 +66,13 @@ export default function FootprintsScreen() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'favorited'>('all')
+  const hasLoadedOnce = useRef(false)
 
   const load = useCallback(async () => {
-    setLoading(true)
+    const silent = hasLoadedOnce.current
+    if (!silent) {
+      setLoading(true)
+    }
     setError(null)
     try {
       const session = await loadSession()
@@ -83,6 +86,7 @@ export default function FootprintsScreen() {
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败')
     } finally {
+      hasLoadedOnce.current = true
       setLoading(false)
     }
   }, [])
@@ -138,9 +142,6 @@ export default function FootprintsScreen() {
 
         <Text style={styles.section}>故事重温</Text>
 
-        {loading ? (
-          <ActivityIndicator color={colors.accent} style={styles.loader} />
-        ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {!loading && !error && visibleItems.length === 0 ? (
           <Text style={styles.empty}>
@@ -227,7 +228,6 @@ const styles = StyleSheet.create({
     marginTop: 24,
     marginBottom: 12,
   },
-  loader: { marginVertical: 24 },
   error: { color: '#dc2626', marginBottom: 12 },
   empty: { color: colors.lightMuted, lineHeight: 22 },
   storyCard: {

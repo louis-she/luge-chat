@@ -8,6 +8,7 @@ const TTS_URL = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional'
 
 /** 与客户端 lib/ttsVoices.ts 保持一致 */
 const ALLOWED_SPEAKERS = new Set([
+  'zh_female_peiqi_uranus_bigtts',
   'zh_female_vv_uranus_bigtts',
   'zh_female_xiaohe_uranus_bigtts',
   'zh_male_liufei_uranus_bigtts',
@@ -15,7 +16,7 @@ const ALLOWED_SPEAKERS = new Set([
 ])
 
 const DEFAULT_RESOURCE_ID = 'seed-tts-2.0'
-const DEFAULT_SPEAKER = 'zh_female_vv_uranus_bigtts'
+const DEFAULT_SPEAKER = 'zh_female_peiqi_uranus_bigtts'
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {

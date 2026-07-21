@@ -15,6 +15,8 @@ export type LugeChatRequest = {
   device_id: string
   debug?: boolean
   min_poi_rating?: number
+  /** 当天已主动讲过的 POI 键（客户端上海日历日） */
+  spoken_poi_keys?: string[]
   recent_messages?: ChatTurnMessage[]
   proactive_context?: {
     poi_name: string
@@ -248,7 +250,7 @@ export async function askLugeGuide(
 export async function proactiveLugeGuide(
   coords: UserCoords,
   accessToken?: string | null,
-  options?: { minPoiRating?: number },
+  options?: { spokenPoiKeys?: string[] },
 ): Promise<LugeChatResponse> {
   const { headers, deviceId } = await functionHeaders(accessToken)
   const body: LugeChatRequest = {
@@ -258,7 +260,7 @@ export async function proactiveLugeGuide(
     heading: coords.heading,
     device_id: deviceId,
     debug: __DEV__,
-    min_poi_rating: options?.minPoiRating ?? 0,
+    spoken_poi_keys: options?.spokenPoiKeys ?? [],
   }
 
   const t0 = Date.now()

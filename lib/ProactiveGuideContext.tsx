@@ -12,14 +12,12 @@ import {
   loadProactiveSettings,
   saveProactiveSettings,
   type ProactiveGuideSettings,
-  type ProactiveMinRating,
 } from './proactiveSettings'
 
 type ProactiveGuideContextValue = {
   ready: boolean
   settings: ProactiveGuideSettings
   setEnabled: (enabled: boolean) => Promise<void>
-  setMinRating: (minRating: ProactiveMinRating) => Promise<void>
 }
 
 const ProactiveGuideContext = createContext<ProactiveGuideContextValue | null>(null)
@@ -40,19 +38,13 @@ export function ProactiveGuideProvider({ children }: { children: ReactNode }) {
     setSettings(saved)
   }, [])
 
-  const setMinRating = useCallback(async (minRating: ProactiveMinRating) => {
-    const saved = await saveProactiveSettings({ minRating })
-    setSettings(saved)
-  }, [])
-
   const value = useMemo(
     () => ({
       ready,
       settings,
       setEnabled,
-      setMinRating,
     }),
-    [ready, settings, setEnabled, setMinRating],
+    [ready, settings, setEnabled],
   )
 
   return (

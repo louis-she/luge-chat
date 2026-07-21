@@ -39,6 +39,11 @@ function RootNavigator() {
         <Stack.Screen name="pay" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="footprint/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen
+          name="proactive-guide-map"
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Stack.Screen name="rtc-spike" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </>
   )

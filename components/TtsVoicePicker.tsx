@@ -9,7 +9,7 @@ export function TtsVoicePicker() {
   return (
     <View style={styles.card}>
       <Text style={styles.title}>路鸽声音</Text>
-      <Text style={styles.desc}>豆包语音 2.0 · 切换后下次讲解生效</Text>
+      <Text style={styles.desc}>豆包语音 2.0 · 默认佩奇猪 · 切换后下次讲解生效</Text>
       <View style={styles.list}>
         {voices.map((voice) => {
           const selected = voice.id === speakerId

@@ -9,9 +9,14 @@ export type TtsVoice = {
 /** 豆包语音合成 2.0（seed-tts-2.0）精选音色 */
 export const TTS_VOICES: TtsVoice[] = [
   {
+    id: 'zh_female_peiqi_uranus_bigtts',
+    label: '佩奇猪',
+    desc: '角色音 · 卡通活泼，当前默认',
+  },
+  {
     id: 'zh_female_vv_uranus_bigtts',
     label: 'Vivi',
-    desc: '女声 · 自然对话，推荐',
+    desc: '女声 · 自然对话',
   },
   {
     id: 'zh_female_xiaohe_uranus_bigtts',
@@ -34,7 +39,8 @@ export const DEFAULT_TTS_SPEAKER = TTS_VOICES[0]!.id
 
 export const TTS_SPEAKER_IDS = new Set(TTS_VOICES.map((v) => v.id))
 
-const STORAGE_KEY = 'luge_tts_speaker_v1'
+/** v2：默认改为佩奇猪，旧缓存需失效 */
+const STORAGE_KEY = 'luge_tts_speaker_v2'
 
 let cachedSpeaker = DEFAULT_TTS_SPEAKER
 

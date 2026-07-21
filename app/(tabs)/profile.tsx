@@ -1,4 +1,5 @@
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
+import { useCallback, useEffect } from 'react'
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { TtsVoicePicker } from '../../components/TtsVoicePicker'
@@ -11,8 +12,29 @@ import { colors, spacing } from '../../lib/theme'
 
 export default function ProfileScreen() {
   const router = useRouter()
-  const { user, logout } = useAuth()
-  const { quota } = useQuota()
+  const { user, logout, patchBalanceAsks } = useAuth()
+  const { quota, loading: quotaLoading, refreshQuota } = useQuota()
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshQuota()
+    }, [refreshQuota]),
+  )
+
+  useEffect(() => {
+    if (!user || !quota || quota.tier !== 'user') return
+    if (user.balance_asks === quota.remaining) return
+    void patchBalanceAsks(quota.remaining)
+  }, [user, quota, patchBalanceAsks])
+
+  const quotaCardLabel =
+    quotaLoading && !quota
+      ? '加载中…'
+      : quota
+        ? formatQuotaLabel(quota)
+        : user
+          ? `${user.balance_asks} 次`
+          : '—'
 
   if (!user) {
     return (
@@ -32,6 +54,14 @@ export default function ProfileScreen() {
           </View>
           <TtsVoicePicker />
           <ProactiveGuideSettings />
+          <Pressable style={styles.devCard} onPress={() => router.push('/proactive-guide-map')}>
+            <Text style={styles.devTitle}>主动讲解地图</Text>
+            <Text style={styles.devDesc}>查看当前位置 8km 内可能主动播报的候选点</Text>
+          </Pressable>
+          <Pressable style={styles.devCard} onPress={() => router.push('/rtc-spike')}>
+            <Text style={styles.devTitle}>RTC 语音通话测试</Text>
+            <Text style={styles.devDesc}>方案甲 V2 · 进房 + 火山 AI 对话</Text>
+          </Pressable>
         </ScrollView>
       </SafeAreaView>
     )
@@ -62,9 +92,7 @@ export default function ProfileScreen() {
 
         <Pressable style={styles.quotaCard} onPress={() => router.push('/pay')}>
           <Text style={styles.quotaTitle}>问路次数</Text>
-          <Text style={styles.quotaValue}>
-            {isVip ? 'VIP 畅聊' : `${user.balance_asks} 次`}
-          </Text>
+          <Text style={styles.quotaValue}>{quotaCardLabel}</Text>
           <Text style={styles.quotaAction}>购买次数包 →</Text>
         </Pressable>
 
@@ -80,6 +108,16 @@ export default function ProfileScreen() {
 
         <TtsVoicePicker />
         <ProactiveGuideSettings />
+
+        <Pressable style={styles.devCard} onPress={() => router.push('/proactive-guide-map')}>
+          <Text style={styles.devTitle}>主动讲解地图</Text>
+          <Text style={styles.devDesc}>查看当前位置 8km 内可能主动播报的候选点</Text>
+        </Pressable>
+
+        <Pressable style={styles.devCard} onPress={() => router.push('/rtc-spike')}>
+          <Text style={styles.devTitle}>RTC 语音通话测试</Text>
+          <Text style={styles.devDesc}>方案甲 V2 · 进房 + 火山 AI 对话</Text>
+        </Pressable>
 
         <Pressable style={styles.logoutBtn} onPress={logout}>
           <Text style={styles.logoutText}>退出登录</Text>
@@ -198,4 +236,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#111827',
   },
   logoutText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  devCard: {
+    marginTop: 16,
+    marginBottom: 16,
+    backgroundColor: '#fff7ed',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+  },
+  devTitle: { fontSize: 16, fontWeight: '700', color: '#9a3412' },
+  devDesc: { marginTop: 6, fontSize: 13, color: '#c2410c', lineHeight: 18 },
 })

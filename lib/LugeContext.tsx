@@ -30,11 +30,13 @@ type LugeContextValue = {
   isThinking: boolean
   isSpeaking: boolean
   conversationReady: boolean
-  startLuge: () => void
+  startLuge: (opts?: { skipGreeting?: boolean }) => void
   stopLuge: () => void
   say: (text: string, accessToken?: string | null, options?: SayOptions) => Promise<void>
   ask: (message: string) => Promise<void>
   runWhileThinking: (fn: () => Promise<void>) => Promise<void>
+  /** 主动讲解文案写入近期对话（RTC ExternalTTS 不走 say 时用） */
+  recordProactiveSpeech: (text: string) => void
 }
 
 const LugeContext = createContext<LugeContextValue | null>(null)
@@ -118,6 +120,11 @@ export function LugeProvider({ children }: { children: ReactNode }) {
     }
   }, [isThinking])
 
+  const recordProactiveSpeech = useCallback((text: string) => {
+    const t = text.trim()
+    if (t) chatWindowRef.current.appendProactive(t)
+  }, [])
+
   const ask = useCallback(
     async (message: string) => {
       if (!message.trim() || isThinking || sayBusyRef.current) return
@@ -173,11 +180,15 @@ export function LugeProvider({ children }: { children: ReactNode }) {
     [isThinking, say, refreshQuota, showExhausted],
   )
 
-  const startLuge = useCallback(() => {
+  const startLuge = useCallback((opts?: { skipGreeting?: boolean }) => {
     chatWindowRef.current.clear()
     setIsActive(true)
     setSpeech(null)
     setConversationReady(false)
+    if (opts?.skipGreeting) {
+      setConversationReady(true)
+      return
+    }
     greetingTimer.current = setTimeout(() => {
       void say(GREETING).finally(() => setConversationReady(true))
     }, 600)
@@ -207,6 +218,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       say,
       ask,
       runWhileThinking,
+      recordProactiveSpeech,
     }),
     [
       isActive,
@@ -219,6 +231,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       say,
       ask,
       runWhileThinking,
+      recordProactiveSpeech,
     ],
   )
 
