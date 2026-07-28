@@ -5,7 +5,6 @@ import { setProactivePoiContext } from './proactiveContext'
 import {
   anchorAfterCheck,
   canProactiveSpeak,
-  DEFAULT_PROACTIVE_SPAN,
   evaluateProactiveCheck,
   type ProactiveSpanSnapshot,
 } from './proactiveSpan'
@@ -18,11 +17,16 @@ import {
   loadSpokenPoiKeysToday,
   rememberProactiveSpoken,
 } from './proactiveSpoken'
+import {
+  settingsToSpanConfig,
+  type ProactiveGuideSettings,
+} from './proactiveSettings'
 
 type Options = {
   enabled: boolean
   coords: UserCoords | null
   busy: boolean
+  settings: ProactiveGuideSettings
   runWhileThinking: (fn: () => Promise<void>) => Promise<void>
   onSpeak: (text: string, accessToken: string | null) => Promise<void>
   onQuotaRefresh: () => void
@@ -33,14 +37,13 @@ type Options = {
 
 /**
  * 路鸽运行时：按「位移 + 时间」双门槛触发主动讲解查询。
- * - 查询：距上次锚点 ≥20km 且距上次查询 ≥10min（可 env 配置）
- * - 开口：距上次朗读 ≥15min（即使查询有结果也可能暂不开口）
- * - 同一景点按上海日历日去重，当天不重复讲
+ * 门槛数字来自「我的 → 高级设置」（SecureStore），改完立即生效。
  */
 export function useProactiveGuide({
   enabled,
   coords,
   busy,
+  settings,
   runWhileThinking,
   onSpeak,
   onQuotaRefresh,
@@ -50,6 +53,11 @@ export function useProactiveGuide({
   const snapshotRef = useRef<ProactiveSpanSnapshot>({ anchor: null, lastSpeakAt: null })
   const checkingRef = useRef(false)
   const seededRef = useRef(false)
+  const span = settingsToSpanConfig(settings)
+  const spanRef = useRef(span)
+  spanRef.current = span
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
 
   useEffect(() => {
     if (!enabled) {
@@ -57,6 +65,12 @@ export function useProactiveGuide({
       seededRef.current = false
       return
     }
+    // anchorNonce 变化 → 强制重锚
+    seededRef.current = false
+  }, [enabled, settings.anchorNonce])
+
+  useEffect(() => {
+    if (!enabled) return
     if (!coords || seededRef.current) return
     snapshotRef.current = {
       anchor: anchorAfterCheck(coords.latitude, coords.longitude, Date.now()),
@@ -64,14 +78,18 @@ export function useProactiveGuide({
     }
     seededRef.current = true
     if (__DEV__) {
-      console.log('[proactive] 锚点已建立，等待位移与时间条件')
+      console.log('[proactive] 锚点已建立', {
+        km: spanRef.current.minDistanceKm,
+        checkMin: settingsRef.current.minCheckIntervalMin,
+        speakMin: settingsRef.current.minSpeakIntervalMin,
+      })
     }
     onDevOverlay?.({
       anchor: { lat: coords.latitude, lng: coords.longitude },
-      spanRadiusKm: DEFAULT_PROACTIVE_SPAN.minDistanceKm,
+      spanRadiusKm: spanRef.current.minDistanceKm,
       lastEvent: null,
     })
-  }, [enabled, coords, onDevOverlay])
+  }, [enabled, coords, settings.anchorNonce, onDevOverlay])
 
   useEffect(() => {
     if (!enabled || !coords || busy || checkingRef.current) return
@@ -82,12 +100,14 @@ export function useProactiveGuide({
       coords.latitude,
       coords.longitude,
       snapshotRef.current,
+      spanRef.current,
     )
     if (gate.action === 'wait') return
 
     checkingRef.current = true
     const checkLat = coords.latitude
     const checkLng = coords.longitude
+    const cfg = settingsRef.current
 
     void (async () => {
       try {
@@ -97,7 +117,7 @@ export function useProactiveGuide({
         }
         onDevOverlay?.({
           anchor: { lat: checkLat, lng: checkLng },
-          spanRadiusKm: DEFAULT_PROACTIVE_SPAN.minDistanceKm,
+          spanRadiusKm: spanRef.current.minDistanceKm,
           lastEvent: null,
         })
 
@@ -109,6 +129,8 @@ export function useProactiveGuide({
           const spokenPoiKeys = await loadSpokenPoiKeysToday()
           const result = await proactiveLugeGuide(coords, token, {
             spokenPoiKeys,
+            speakLength: cfg.speakLength,
+            scenicRadiusKm: cfg.scenicRadiusKm,
           })
 
           if (result.skipped || !result.answer?.trim()) {
@@ -122,7 +144,7 @@ export function useProactiveGuide({
                   lat: snapshotRef.current.anchor?.lat ?? checkLat,
                   lng: snapshotRef.current.anchor?.lng ?? checkLng,
                 },
-                spanRadiusKm: DEFAULT_PROACTIVE_SPAN.minDistanceKm,
+                spanRadiusKm: spanRef.current.minDistanceKm,
                 lastEvent: {
                   lat: hit.lat,
                   lng: hit.lng,
@@ -136,7 +158,7 @@ export function useProactiveGuide({
           }
 
           const speakAt = Date.now()
-          if (!canProactiveSpeak(speakAt, snapshotRef.current)) {
+          if (!canProactiveSpeak(speakAt, snapshotRef.current, spanRef.current)) {
             if (__DEV__) console.log('[proactive] 有内容但处于开口冷却期')
             return
           }
@@ -159,7 +181,7 @@ export function useProactiveGuide({
                 lat: snapshotRef.current.anchor?.lat ?? checkLat,
                 lng: snapshotRef.current.anchor?.lng ?? checkLng,
               },
-              spanRadiusKm: DEFAULT_PROACTIVE_SPAN.minDistanceKm,
+              spanRadiusKm: spanRef.current.minDistanceKm,
               lastEvent: {
                 lat: result.map_hit.lat,
                 lng: result.map_hit.lng,
@@ -190,6 +212,11 @@ export function useProactiveGuide({
     coords?.latitude,
     coords?.longitude,
     busy,
+    settings.minDistanceKm,
+    settings.minCheckIntervalMin,
+    settings.minSpeakIntervalMin,
+    settings.speakLength,
+    settings.scenicRadiusKm,
     runWhileThinking,
     onSpeak,
     onQuotaRefresh,

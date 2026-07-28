@@ -1,3 +1,7 @@
+import {
+  getMapPoiProvider,
+  type MapPoi,
+} from '../_shared/mapPoi/mod.ts'
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import { adminClient } from './sessionLoc.ts'
 
@@ -9,7 +13,7 @@ export type NearbyLandmark = {
   lat: number
   lng: number
   story?: string
-  source: 'cache' | 'amap'
+  source: 'cache' | 'amap' | 'tianditu'
 }
 
 function toRad(d: number) {
@@ -107,76 +111,60 @@ async function fromCache(
     .slice(0, 8)
 }
 
-async function fromAmap(
+function fromMapPoi(
+  poi: MapPoi,
+  lat: number,
+  lng: number,
+  heading: number | null,
+  providerId: 'amap' | 'tianditu',
+): NearbyLandmark {
+  const dist =
+    poi.distance_m != null
+      ? poi.distance_m
+      : Math.round(haversineM(lat, lng, poi.lat, poi.lng))
+  return {
+    name: poi.name,
+    type: poi.type.split(';')[0] || '地标',
+    distance_m: dist,
+    direction: bearingLabel(bearingTo(lat, lng, poi.lat, poi.lng), heading),
+    lat: poi.lat,
+    lng: poi.lng,
+    source: providerId,
+  }
+}
+
+async function fromExternalMap(
   lat: number,
   lng: number,
   radiusM: number,
   heading: number | null,
   focus?: string,
-): Promise<NearbyLandmark[]> {
-  const key = Deno.env.get('AMAP_WEB_KEY')?.trim()
-  if (!key) return []
+): Promise<{ landmarks: NearbyLandmark[]; providerNote: string }> {
+  const provider = getMapPoiProvider()
+  if (!provider) {
+    return { landmarks: [], providerNote: '未配置地图 POI Key' }
+  }
 
-  const qs = new URLSearchParams({
-    key,
-    location: `${lng.toFixed(6)},${lat.toFixed(6)}`,
-    types: '风景名胜|地名地址信息|交通设施服务|道路附属设施',
-    radius: String(Math.min(Math.max(radiusM, 500), 8000)),
-    offset: '12',
-    extensions: 'base',
-    sortrule: 'distance',
+  const pois = await provider.around({
+    lat,
+    lng,
+    radiusM: Math.min(Math.max(radiusM, 500), 8000),
+    category: 'ask_nearby',
+    keyword: focus?.trim() || undefined,
+    limit: 12,
   })
-  if (focus?.trim()) qs.set('keywords', focus.trim())
 
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 5000)
-  try {
-    const res = await fetch(
-      `https://restapi.amap.com/v3/place/around?${qs}`,
-      { signal: ctrl.signal },
-    )
-    if (!res.ok) return []
-    const data = (await res.json()) as {
-      status?: string
-      pois?: Array<{
-        name?: string
-        type?: string
-        location?: string
-        distance?: string
-      }>
-    }
-    if (data.status !== '1') return []
-    return (data.pois ?? [])
-      .map((poi) => {
-        const [lngS, latS] = (poi.location ?? '').split(',')
-        const plat = Number(latS)
-        const plng = Number(lngS)
-        if (!Number.isFinite(plat) || !Number.isFinite(plng)) return null
-        const dist = poi.distance
-          ? Math.round(Number(poi.distance))
-          : Math.round(haversineM(lat, lng, plat, plng))
-        const bearing = bearingTo(lat, lng, plat, plng)
-        return {
-          name: poi.name ?? '未命名',
-          type: (poi.type ?? '地标').split(';')[0] || '地标',
-          distance_m: dist,
-          direction: bearingLabel(bearing, heading),
-          lat: plat,
-          lng: plng,
-          source: 'amap' as const,
-        }
-      })
-      .filter((x): x is NearbyLandmark => !!x)
-      .slice(0, 8)
-  } catch (e) {
-    console.warn('[nearby] amap failed:', e)
-    return []
-  } finally {
-    clearTimeout(timer)
+  const landmarks = pois
+    .map((p) => fromMapPoi(p, lat, lng, heading, provider.id))
+    .slice(0, 8)
+
+  return {
+    landmarks,
+    providerNote: `${provider.id} 兜底 ${landmarks.length} 条`,
   }
 }
 
-/** 查周边：优先缓存，空则高德兜底 */
+/** 查周边：优先缓存，空则外部地图 POI（当前默认高德） */
 export async function lookupNearbyLandmarks(opts: {
   lat: number
   lng: number
@@ -216,52 +204,18 @@ export async function lookupNearbyLandmarks(opts: {
     : ''
 
   if (landmarks.length === 0) {
-    landmarks = await fromAmap(
+    const ext = await fromExternalMap(
       opts.lat,
       opts.lng,
       radiusM,
       heading,
       opts.focus,
     )
+    landmarks = ext.landmarks
     note = landmarks.length
-      ? `高德兜底 ${landmarks.length} 条（半径 ${radiusM}m）`
-      : `半径 ${radiusM}m 内未找到地理地标`
+      ? `${ext.providerNote}（半径 ${radiusM}m）`
+      : `缓存与外部地图均无结果（半径 ${radiusM}m）`
   }
 
   return { landmarks, note }
-}
-
-export function formatLandmarksForLlm(
-  landmarks: NearbyLandmark[],
-  meta: { lat: number; lng: number; heading: number | null; note: string },
-): string {
-  if (landmarks.length === 0) {
-    return JSON.stringify({
-      ok: false,
-      user_location: {
-        lat: meta.lat,
-        lng: meta.lng,
-        heading: meta.heading,
-      },
-      note: meta.note,
-      landmarks: [],
-    })
-  }
-  return JSON.stringify({
-    ok: true,
-    user_location: {
-      lat: meta.lat,
-      lng: meta.lng,
-      heading: meta.heading,
-    },
-    note: meta.note,
-    landmarks: landmarks.map((l) => ({
-      name: l.name,
-      type: l.type,
-      distance_m: l.distance_m,
-      direction: l.direction,
-      ...(l.story ? { story: l.story } : {}),
-      source: l.source,
-    })),
-  })
 }

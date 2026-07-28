@@ -75,3 +75,8 @@ export async function rememberProactiveSpoken(opts: {
   if (opts.amapPoiId?.trim()) add.add(`id:${opts.amapPoiId.trim()}`)
   await writeStore({ day, keys: [...add] })
 }
+
+/** 清空当天已讲列表（路测用） */
+export async function clearProactiveSpokenToday() {
+  await writeStore({ day: shanghaiDay(), keys: [] })
+}

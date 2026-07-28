@@ -29,6 +29,7 @@ import {
   QuotaExhaustedError,
   type QuotaStatus,
 } from './quota.ts'
+import { getMapPoiProvider, type MapPoi } from '../_shared/mapPoi/mod.ts'
 
 type DebugStep = { step: string; ms: number; detail?: string }
 
@@ -77,13 +78,12 @@ const DEEPSEEK_BASE_URL = Deno.env.get('DEEPSEEK_BASE_URL') ?? 'https://api.deep
 const DEEPSEEK_MODEL = Deno.env.get('DEEPSEEK_MODEL') ?? 'deepseek-v4-flash'
 const DEEPSEEK_JUDGE_MODEL = Deno.env.get('DEEPSEEK_JUDGE_MODEL') ?? DEEPSEEK_MODEL
 const DEEPSEEK_ANSWER_MODEL = Deno.env.get('DEEPSEEK_ANSWER_MODEL') ?? DEEPSEEK_MODEL
-const AMAP_WEB_KEY = Deno.env.get('AMAP_WEB_KEY')
 
 const SYSTEM_PROMPT = `你是「路鸽」，一位专业、幽默、适合车载场景的自驾游 AI 语音导游。
 
 你会收到：
 1) 用户当前 GPS 坐标，以及可选的「朝向」（车头/行进方向，正北为 0°）；朝向可能标注为未知；
-2) 高德地图 / OpenStreetMap 检索到的周边地理要素（山川、河流、城镇、景点、桥梁等；有朝向时会标左前方/右前方等）；
+2) 地图检索到的周边地理要素（山川、河流、城镇、景点、桥梁等；有朝向时会标左前方/右前方等）；
 3) 逆地理编码得到的地址上下文；
 4) 联网检索到的摘要片段（如有）；
 5) 用户历史足迹记忆（如有）；
@@ -224,7 +224,7 @@ const NON_GEO_POI_RE =
 const GEO_AMAP_TYPE_RE =
   /风景名胜|水系|河流|湖泊|湿地|自然|地名|山峰|山脉|桥|古镇|乡镇|公园|博物馆|寺庙|遗址|文物|雕塑|观景点|国家森林公园|风景区|行政区/
 
-function poiLooksLikeGeoLandmark(poi: AmapPoi) {
+function poiLooksLikeGeoLandmark(poi: { name?: string; type?: string }) {
   const name = poi.name ?? ''
   const type = poi.type ?? ''
 
@@ -243,38 +243,6 @@ function poiLooksLikeGeoLandmark(poi: AmapPoi) {
   if (/地名地址/.test(type) && /[镇乡村]$/.test(stem)) return true
 
   return false
-}
-
-type AmapPoi = {
-  id?: string
-  name?: string
-  type?: string
-  address?: string
-  location?: string
-  distance?: string
-  tel?: string
-  pname?: string
-  cityname?: string
-  adname?: string
-  rating?: string
-  biz_ext?: string
-}
-
-function parsePoiRating(poi: AmapPoi): number | null {
-  if (poi.rating != null && poi.rating !== '') {
-    const r = Number(poi.rating)
-    if (Number.isFinite(r) && r > 0) return r
-  }
-  if (poi.biz_ext) {
-    try {
-      const ext = JSON.parse(poi.biz_ext) as { rating?: string | number }
-      const r = Number(ext.rating)
-      if (Number.isFinite(r) && r > 0) return r
-    } catch {
-      /* ignore */
-    }
-  }
-  return null
 }
 
 type ScenicPoiRow = {
@@ -362,46 +330,40 @@ function isSpokenCandidate(c: ProactiveCandidate, spoken: Set<string>) {
   return spokenKeysForPoi(c.name, c.amap_poi_id).some((k) => spoken.has(k.toLowerCase()))
 }
 
-function isAmapScenicType(type: string | undefined | null) {
+function isScenicPoiType(type: string | undefined | null) {
   return Boolean(type && type.includes('风景名胜'))
 }
 
-async function amapRatedScenicPois(lat: number, lng: number): Promise<ScenicPoiRow[]> {
-  if (!AMAP_WEB_KEY) return []
+async function fetchScenicPois(
+  lat: number,
+  lng: number,
+  radiusKm = 8,
+): Promise<ScenicPoiRow[]> {
+  const provider = getMapPoiProvider()
+  if (!provider) return []
+  const radiusM = Math.round(Math.min(Math.max(radiusKm, 1), 50) * 1000)
 
-  const data = await amapGet<{ pois?: AmapPoi[] }>('/v3/place/around', {
-    location: `${lng.toFixed(6)},${lat.toFixed(6)}`,
-    types: '风景名胜',
-    radius: '8000',
-    offset: '25',
-    extensions: 'all',
-    sortrule: 'weight',
+  const pois = await provider.around({
+    lat,
+    lng,
+    radiusM,
+    category: 'scenic',
+    limit: 25,
   })
 
-  return (data?.pois ?? [])
-    .map((poi) => {
-      const pos = poi.location ? parseAmapLngLat(poi.location) : null
-      const rating = parsePoiRating(poi)
-      const distance_m = poi.distance
-        ? Math.round(Number(poi.distance))
-        : pos
-          ? Math.round(haversineM(lat, lng, pos.lat, pos.lng))
-          : null
-      if (distance_m == null) return null
-      // 高德偶发串类，二次卡死只留风景名胜
-      if (!isAmapScenicType(poi.type)) return null
-      return {
-        name: poi.name ?? '未命名',
-        type: poi.type ?? '',
-        address: poi.address ?? '',
-        rating,
-        distance_m,
-        lat: pos?.lat ?? null,
-        lng: pos?.lng ?? null,
-        amap_poi_id: poi.id ?? null,
-      } satisfies ScenicPoiRow
-    })
-    .filter((row): row is ScenicPoiRow => row != null)
+  return pois
+    .filter((p) => isScenicPoiType(p.type))
+    .filter((p) => p.distance_m != null)
+    .map((p) => ({
+      name: p.name,
+      type: p.type,
+      address: p.address,
+      rating: p.rating,
+      distance_m: p.distance_m as number,
+      lat: p.lat,
+      lng: p.lng,
+      amap_poi_id: p.id,
+    }))
 }
 
 function buildProactiveCandidates(scenic: ScenicPoiRow[]): ProactiveCandidate[] {
@@ -409,7 +371,7 @@ function buildProactiveCandidates(scenic: ScenicPoiRow[]): ProactiveCandidate[] 
   for (const p of scenic) {
     if (p.lat == null || p.lng == null) continue
     if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue
-    if (!isAmapScenicType(p.type)) continue
+    if (!isScenicPoiType(p.type)) continue
     raw.push({
       name: p.name,
       type: p.type || '风景名胜',
@@ -443,12 +405,13 @@ function matchCandidateByName(
 }
 
 function candidateToMapHit(c: ProactiveCandidate): MapHit {
+  const providerId = getMapPoiProvider()?.id ?? 'amap'
   return {
     name: c.name,
     category: c.type,
     distance_m: c.distance_m,
     direction: '附近',
-    source: 'amap',
+    source: providerId,
     lat: c.lat,
     lng: c.lng,
     amap_poi_id: c.amap_poi_id,
@@ -456,138 +419,72 @@ function candidateToMapHit(c: ProactiveCandidate): MapHit {
   }
 }
 
-async function amapGet<T>(path: string, params: Record<string, string>) {
-  if (!AMAP_WEB_KEY) return null
-  const qs = new URLSearchParams({ ...params, key: AMAP_WEB_KEY })
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 5000)
-  try {
-    const res = await fetch(`https://restapi.amap.com${path}?${qs}`, {
-      signal: controller.signal,
-    })
-    clearTimeout(timer)
-    if (!res.ok) return null
-    const data = await res.json()
-    if (data.status !== '1' && data.status !== 1) {
-      console.warn('amap error:', data.info ?? data)
-      return null
-    }
-    return data as T
-  } catch (e) {
-    clearTimeout(timer)
-    console.warn('amap fetch failed:', e)
-    return null
-  }
-}
-
-function parseAmapLngLat(location: string) {
-  const [lng, lat] = location.split(',').map(Number)
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-  return { lat, lng }
-}
-
-function amapPoiToMapHit(
-  poi: AmapPoi,
+function mapPoiToMapHit(
+  poi: MapPoi,
   userLat: number,
   userLng: number,
   heading: number | null,
+  source: MapHit['source'] = 'amap',
 ): MapHit | null {
-  if (!poi.location || !poi.name) return null
   if (!poiLooksLikeGeoLandmark(poi)) return null
-  const pos = parseAmapLngLat(poi.location)
-  if (!pos) return null
-
-  const distance_m = poi.distance
-    ? Math.round(Number(poi.distance))
-    : Math.round(haversineM(userLat, userLng, pos.lat, pos.lng))
-  const bearing = bearingTo(userLat, userLng, pos.lat, pos.lng)
-
+  const distance_m =
+    poi.distance_m != null
+      ? poi.distance_m
+      : Math.round(haversineM(userLat, userLng, poi.lat, poi.lng))
+  const bearing = bearingTo(userLat, userLng, poi.lat, poi.lng)
   return {
     name: poi.name,
-    category: poi.type?.split(';')[0] ?? '地理要素',
+    category: poi.type.split(';')[0] || '地理要素',
     distance_m,
     direction: bearingLabel(bearing, heading),
-    lat: pos.lat,
-    lng: pos.lng,
-    source: 'amap',
-    amap_poi_id: poi.id ?? null,
+    source,
+    lat: poi.lat,
+    lng: poi.lng,
+    amap_poi_id: poi.id,
     tags: {
       name: poi.name,
-      type: poi.type ?? '',
-      address: poi.address ?? '',
-      tel: poi.tel ?? '',
-      province: poi.pname ?? '',
-      city: poi.cityname ?? '',
-      district: poi.adname ?? '',
+      type: poi.type,
+      address: poi.address,
     },
   }
 }
 
-async function amapAroundGeoPois(lat: number, lng: number, radius: number) {
-  const data = await amapGet<{ pois?: AmapPoi[] }>('/v3/place/around', {
-    location: `${lng.toFixed(6)},${lat.toFixed(6)}`,
-    types: '风景名胜|地名地址信息',
-    radius: String(radius),
-    offset: '20',
-    extensions: 'all',
-    sortrule: 'distance',
+async function mapAroundGeoPois(lat: number, lng: number, radius: number) {
+  const provider = getMapPoiProvider()
+  if (!provider) return [] as MapPoi[]
+  return provider.around({
+    lat,
+    lng,
+    radiusM: radius,
+    category: 'geo_landmark',
+    limit: 20,
   })
-  return data?.pois ?? []
 }
 
-async function amapRegeoContext(lat: number, lng: number) {
-  const data = await amapGet<{
-    regeocode?: {
-      formatted_address?: string
-      addressComponent?: Record<string, string>
-      pois?: AmapPoi[]
-    }
-  }>('/v3/geocode/regeo', {
-    location: `${lng.toFixed(6)},${lat.toFixed(6)}`,
-    extensions: 'all',
-    radius: '1000',
-    poitype: '风景名胜|地名地址信息',
-  })
-
-  const rg = data?.regeocode
-  if (!rg) return { text: null, geoPois: [] as AmapPoi[] }
-
-  const lines: string[] = []
-  if (rg.formatted_address) lines.push(`格式化地址：${rg.formatted_address}`)
-  const ac = rg.addressComponent as Record<string, unknown> | undefined
-  if (ac) {
-    lines.push(
-      `行政区：${[ac.province, ac.city, ac.district, ac.township].filter(Boolean).join('')}`,
-    )
-    const sn = ac.streetNumber as { street?: string; number?: string } | undefined
-    if (sn?.street) {
-      lines.push(`街道：${sn.street}${sn.number ?? ''}`)
-    }
-  }
-  const geoPois = (rg.pois ?? []).filter(poiLooksLikeGeoLandmark).slice(0, 8)
-  if (geoPois.length) {
-    lines.push(
-      '附近地理 POI：' +
-        geoPois.map((p) => `${p.name}（${p.address ?? p.type ?? ''}）`).join('；'),
-    )
-  }
-  return { text: lines.length ? lines.join('\n') : null, geoPois }
+async function mapRegeoContext(lat: number, lng: number) {
+  const provider = getMapPoiProvider()
+  if (!provider) return { text: null as string | null, geoPois: [] as MapPoi[] }
+  const rg = await provider.regeo(lat, lng)
+  const geoPois = rg.pois.filter(poiLooksLikeGeoLandmark).slice(0, 8)
+  // provider.regeo 已拼好 text；若过滤了 POI，仍用原 text（含未过滤列表）即可
+  return { text: rg.text, geoPois }
 }
 
-async function findAmapMapContext(
+async function findExternalMapContext(
   lat: number,
   lng: number,
   heading: number | null,
 ): Promise<{ map_hit: MapHit | null; regeo: string | null }> {
-  if (!AMAP_WEB_KEY) return { map_hit: null, regeo: null }
+  const provider = getMapPoiProvider()
+  if (!provider) return { map_hit: null, regeo: null }
 
   const hasHeading = heading != null && Number.isFinite(heading)
-  const nearUserP = amapAroundGeoPois(lat, lng, 2500)
+  const nearUserP = mapAroundGeoPois(lat, lng, 2500)
   const ahead = hasHeading ? pointAhead(lat, lng, heading, 800) : null
   const nearAheadP = ahead
-    ? amapAroundGeoPois(ahead.lat, ahead.lng, 3000)
-    : Promise.resolve([] as AmapPoi[])
-  const regeoP = amapRegeoContext(lat, lng)
+    ? mapAroundGeoPois(ahead.lat, ahead.lng, 3000)
+    : Promise.resolve([] as MapPoi[])
+  const regeoP = mapRegeoContext(lat, lng)
 
   const [nearUser, nearAhead, regeo] = await Promise.all([
     nearUserP,
@@ -595,10 +492,11 @@ async function findAmapMapContext(
     regeoP,
   ])
 
+  const src = provider.id
   const merged = [
-    ...nearAhead.map((p) => amapPoiToMapHit(p, lat, lng, heading)).filter(Boolean),
-    ...nearUser.map((p) => amapPoiToMapHit(p, lat, lng, heading)).filter(Boolean),
-    ...regeo.geoPois.map((p) => amapPoiToMapHit(p, lat, lng, heading)).filter(Boolean),
+    ...nearAhead.map((p) => mapPoiToMapHit(p, lat, lng, heading, src)).filter(Boolean),
+    ...nearUser.map((p) => mapPoiToMapHit(p, lat, lng, heading, src)).filter(Boolean),
+    ...regeo.geoPois.map((p) => mapPoiToMapHit(p, lat, lng, heading, src)).filter(Boolean),
   ] as MapHit[]
 
   const seen = new Set<string>()
@@ -617,79 +515,10 @@ async function findAmapMapContext(
     return aScore - bScore
   })
 
-  return { map_hit: unique[0] ?? null, regeo: regeo.text }
-}
-
-async function queryOverpass(lat: number, lng: number, radiusM: number) {
-  const query = `
-[out:json][timeout:8];
-(
-  way["waterway"~"river|canal|stream|drain"](around:${radiusM},${lat},${lng});
-  relation["waterway"~"river|canal"](around:${radiusM},${lat},${lng});
-);
-out body tags center;
-`
-  const url = 'https://overpass.kumi.systems/api/interpreter'
-  try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 3000)
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'LugeChat/1.0 (contact@luge.chat)',
-      },
-      body: `data=${encodeURIComponent(query)}`,
-      signal: controller.signal,
-    })
-    clearTimeout(timer)
-    if (!res.ok) return null
-    return await res.json()
-  } catch {
-    return null
+  return {
+    map_hit: unique[0] ?? null,
+    regeo: regeo.text,
   }
-}
-
-function parseOsmWaterFeatures(
-  overpassJson: { elements?: Array<Record<string, unknown>> },
-  userLat: number,
-  userLng: number,
-  heading: number | null,
-): MapHit[] {
-  const elements = overpassJson.elements ?? []
-  const rivers: MapHit[] = []
-
-  for (const el of elements) {
-    const tags = (el.tags ?? {}) as Record<string, string>
-    const center = el.center as { lat: number; lon: number } | undefined
-    const lat = center?.lat ?? (el.lat as number | undefined)
-    const lng = center?.lon ?? (el.lon as number | undefined)
-    if (lat == null || lng == null) continue
-
-    const distance_m = haversineM(userLat, userLng, lat, lng)
-    const bearing = bearingTo(userLat, userLng, lat, lng)
-
-    rivers.push({
-      name: pickOsmWaterName(tags),
-      category: tags.waterway,
-      distance_m: Math.round(distance_m),
-      direction: bearingLabel(bearing, heading),
-      lat,
-      lng,
-      tags,
-      source: 'osm',
-    })
-  }
-
-  rivers.sort((a, b) => {
-    if (heading == null) return a.distance_m - b.distance_m
-    const aForward = a.direction.includes('前') ? 0 : 1
-    const bForward = b.direction.includes('前') ? 0 : 1
-    if (aForward !== bForward) return aForward - bForward
-    return a.distance_m - b.distance_m
-  })
-
-  return rivers
 }
 
 async function findMapContext(
@@ -707,26 +536,26 @@ async function findMapContext(
   if (cachedBest) {
     const map_hit = geoLandmarkToMapHit(cachedBest, lat, lng, heading, geoBearingHelpers)
     log?.mark('地理缓存检索', `${map_hit.name}（命中 ${cachedBest.hit_count} 次）`)
-    const regeo = await amapRegeoContext(lat, lng)
+    const regeo = await mapRegeoContext(lat, lng)
     log?.mark('地图检索完成', `${map_hit.name}（cache）`)
     return { map_hit, amapRegeo: regeo.text }
   }
   log?.mark('地理缓存检索', '未命中')
 
-  log?.mark('高德地图检索', '开始')
-  const amap = await findAmapMapContext(lat, lng, heading)
-  if (amap.map_hit) {
-    log?.mark('高德地图检索', amap.map_hit.name)
-    log?.mark('地图检索完成', `${amap.map_hit.name}（amap）`)
-    return { map_hit: amap.map_hit, amapRegeo: amap.regeo }
+  log?.mark('外部地图检索', '开始')
+  const ext = await findExternalMapContext(lat, lng, heading)
+  if (ext.map_hit) {
+    log?.mark('外部地图检索', `${ext.map_hit.name}（${ext.map_hit.source}）`)
+    log?.mark('地图检索完成', `${ext.map_hit.name}（${ext.map_hit.source}）`)
+    return { map_hit: ext.map_hit, amapRegeo: ext.regeo }
   }
-  log?.mark('高德地图检索', '未命中')
+  log?.mark('外部地图检索', '未命中')
 
   const osmEnabled = Deno.env.get('LUGE_OSM') === '1'
   if (!osmEnabled) {
     log?.mark('OSM 兜底', '已跳过（国内默认关闭，设 LUGE_OSM=1 开启）')
     log?.mark('地图检索完成', '未命中显著地理要素')
-    return { map_hit: null, amapRegeo: amap.regeo }
+    return { map_hit: null, amapRegeo: ext.regeo }
   }
 
   log?.mark('OSM 兜底', '开始')
@@ -760,7 +589,7 @@ async function findMapContext(
   const mapHit = unique[0] ?? null
   log?.mark('OSM 兜底', mapHit ? mapHit.name : '未命中')
   log?.mark('地图检索完成', mapHit ? `${mapHit.name}（osm）` : '未命中显著地理要素')
-  return { mapHit, amapRegeo: amap.regeo }
+  return { map_hit: mapHit, amapRegeo: ext.regeo }
 }
 
 async function fetchWikipediaSummary(title: string) {
@@ -907,7 +736,8 @@ async function askDeepseek(
   return text
 }
 
-const PROACTIVE_GUIDE_PROMPT = `你是路鸽的主动讲解调度员。用户正在自驾，系统已经触发一次主动讲解机会。
+function buildProactiveGuidePrompt(minChars: number, maxChars: number) {
+  return `你是路鸽的主动讲解调度员。用户正在自驾，系统已经触发一次主动讲解机会。
 
 你会收到一份「候选 POI 列表」（已去重）。你的任务：必须从该列表中挑选 **恰好一个** POI，写一段口语讲解。
 
@@ -919,22 +749,31 @@ const PROACTIVE_GUIDE_PROMPT = `你是路鸽的主动讲解调度员。用户正
 - 城市里 POI 多时，挑一个最有讲头的，不要罗列。
 - 若上下文含「沉淀讲解」，可吸收要点，用自己的口语重述，勿照读。
 - 避免：楼盘、小区、商铺；泛泛的「附近有很多公园」。
-- text 为 80～160 字口语化中文，适合 TTS，不要 markdown。
+- text 为 ${minChars}～${maxChars} 字口语化中文，适合 TTS，不要 markdown。
 - 仅当候选列表为空时，才输出 action=skip。
 
 输出 JSON：{"action":"speak"|"skip","poi_name":"列表中的名称","reason":"简短原因","text":"..."}
 action=speak 时 text 与 poi_name 必填；action=skip 时 text 与 poi_name 均为空字符串。只输出 JSON。`
+}
+
+const SPEAK_LENGTH_SPEC: Record<string, { min: number; max: number; maxTokens: number }> = {
+  short: { min: 80, max: 160, maxTokens: 400 },
+  medium: { min: 150, max: 280, maxTokens: 700 },
+  long: { min: 280, max: 450, maxTokens: 1000 },
+}
 
 async function proactiveGuideDecision(
   userContent: string,
   logPrompt: (label: string, messages: Array<{ role: string; content: string }>) => void,
+  speakLength: string = 'short',
 ) {
   if (!DEEPSEEK_API_KEY) {
     return { action: 'skip' as const, reason: 'no api key', text: '', poi_name: '' }
   }
 
+  const spec = SPEAK_LENGTH_SPEC[speakLength] ?? SPEAK_LENGTH_SPEC.short
   const messages = [
-    { role: 'system', content: PROACTIVE_GUIDE_PROMPT },
+    { role: 'system', content: buildProactiveGuidePrompt(spec.min, spec.max) },
     { role: 'user', content: userContent },
   ]
   logPrompt('主动讲解判定', messages)
@@ -949,7 +788,7 @@ async function proactiveGuideDecision(
       model: DEEPSEEK_JUDGE_MODEL,
       messages,
       temperature: 0.3,
-      max_tokens: 400,
+      max_tokens: spec.maxTokens,
       response_format: { type: 'json_object' },
       thinking: { type: 'disabled' },
     }),
@@ -1022,11 +861,19 @@ function parseProactiveContext(body: Record<string, unknown>): ProactivePoiConte
 }
 
 function buildMapSection(mapHit: MapHit | null) {
+  const sourceLabel =
+    mapHit?.source === 'cache'
+      ? '路鸽地理缓存（此前问答沉淀）'
+      : mapHit?.source === 'amap'
+        ? '高德地图'
+        : mapHit?.source === 'tianditu'
+          ? '天地图'
+          : mapHit?.source === 'osm'
+            ? 'OpenStreetMap'
+            : mapHit?.source ?? '未知'
   return mapHit
     ? [
-        mapHit.source === 'cache'
-          ? '数据源：路鸽地理缓存（此前问答沉淀）'
-          : `数据源：${mapHit.source === 'amap' ? '高德地图' : 'OpenStreetMap'}`,
+        `数据源：${sourceLabel}`,
         `名称：${mapHit.name}`,
         `类型：${mapHit.category ?? '未知'}`,
         `相对位置：${mapHit.direction}，约 ${mapHit.distance_m} 米`,
@@ -1050,9 +897,15 @@ async function processProactiveGuide(
     body?.heading == null || body?.heading === '' ? null : Number(body.heading)
   const heading =
     headingRaw != null && Number.isFinite(headingRaw) ? headingRaw : null
-  const spokenKeys = parseSpokenPoiKeys(body)
+    const spokenKeys = parseSpokenPoiKeys(body)
+  const speakLengthRaw = String(body?.speak_length ?? 'short').toLowerCase()
+  const speakLength = speakLengthRaw in SPEAK_LENGTH_SPEC ? speakLengthRaw : 'short'
+  const scenicRadiusKm = Math.min(
+    50,
+    Math.max(1, Number(body?.scenic_radius_km) || 8),
+  )
 
-  dbg.mark('主动讲解请求')
+dbg.mark('主动讲解请求')
 
   const { userId, deviceKey } = await parseQuotaAuth(req, {
     device_id: body?.device_id as string | undefined,
@@ -1068,11 +921,11 @@ async function processProactiveGuide(
   dbg.mark('额度扣减', `剩余 ${quota.remaining}/${quota.limit}`)
 
   dbg.mark('高德逆地理', '开始')
-  const regeo = await amapRegeoContext(latitude, longitude)
+  const regeo = await mapRegeoContext(latitude, longitude)
   const amapRegeo = regeo.text
 
-  dbg.mark('高德景点候选', '仅 8km 风景名胜')
-  const scenicPois = await amapRatedScenicPois(latitude, longitude)
+  dbg.mark('景点候选', `风景名胜 ${scenicRadiusKm}km`)
+  const scenicPois = await fetchScenicPois(latitude, longitude, scenicRadiusKm)
   const allCandidates = buildProactiveCandidates(scenicPois)
   const candidates = allCandidates.filter((c) => !isSpokenCandidate(c, spokenKeys))
   dbg.mark(
@@ -1154,7 +1007,11 @@ async function processProactiveGuide(
   ].join('\n')
 
   dbg.mark('主动讲解判定开始')
-  const decision = await proactiveGuideDecision(userContent, dbg.logPrompt.bind(dbg))
+  const decision = await proactiveGuideDecision(
+    userContent,
+    dbg.logPrompt.bind(dbg),
+    speakLength,
+  )
 
   let selected =
     decision.action === 'speak' ? matchCandidateByName(candidates, decision.poi_name) : null
@@ -1218,8 +1075,13 @@ async function processProactivePreview(
     headingRaw != null && Number.isFinite(headingRaw) ? headingRaw : null
   const spokenKeys = parseSpokenPoiKeys(body)
 
-  dbg.mark('主动讲解预览', '仅风景名胜')
-  const scenicPois = await amapRatedScenicPois(latitude, longitude)
+  const scenicRadiusKm = Math.min(
+    50,
+    Math.max(1, Number(body?.scenic_radius_km) || 8),
+  )
+
+  dbg.mark('主动讲解预览', `风景名胜 ${scenicRadiusKm}km`)
+  const scenicPois = await fetchScenicPois(latitude, longitude, scenicRadiusKm)
   const allCandidates = buildProactiveCandidates(scenicPois)
   const candidates = allCandidates
     .filter((c) => !isSpokenCandidate(c, spokenKeys))

@@ -26,7 +26,11 @@ export type ProactivePreviewResponse = {
 /** 仅 __DEV__ + X-Luge-Debug：地图展示可能触发主动讲解的候选 POI */
 export async function fetchProactivePreviewPois(
   coords: UserCoords,
-  opts?: { accessToken?: string | null; spokenPoiKeys?: string[] },
+  opts?: {
+    accessToken?: string | null
+    spokenPoiKeys?: string[]
+    scenicRadiusKm?: number
+  },
 ): Promise<ProactivePreviewResponse> {
   const deviceId = await getDeviceId()
   const token = opts?.accessToken?.trim() || SUPABASE_ANON_KEY
@@ -46,6 +50,7 @@ export async function fetchProactivePreviewPois(
       heading: coords.heading,
       device_id: deviceId,
       spoken_poi_keys: opts?.spokenPoiKeys ?? [],
+      scenic_radius_km: opts?.scenicRadiusKm ?? 8,
     }),
   })
   const data = (await res.json().catch(() => ({}))) as ProactivePreviewResponse & {

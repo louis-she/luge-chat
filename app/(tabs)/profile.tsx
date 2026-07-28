@@ -54,9 +54,13 @@ export default function ProfileScreen() {
           </View>
           <TtsVoicePicker />
           <ProactiveGuideSettings />
+          <Pressable style={styles.devCard} onPress={() => router.push('/advanced-settings')}>
+            <Text style={styles.devTitle}>高级设置</Text>
+            <Text style={styles.devDesc}>门槛、口播长短、路测工具（改完立即生效）</Text>
+          </Pressable>
           <Pressable style={styles.devCard} onPress={() => router.push('/proactive-guide-map')}>
             <Text style={styles.devTitle}>主动讲解地图</Text>
-            <Text style={styles.devDesc}>查看当前位置 8km 内可能主动播报的候选点</Text>
+            <Text style={styles.devDesc}>查看当前位置可能主动播报的候选点</Text>
           </Pressable>
           <Pressable style={styles.devCard} onPress={() => router.push('/rtc-spike')}>
             <Text style={styles.devTitle}>RTC 语音通话测试</Text>
@@ -109,9 +113,14 @@ export default function ProfileScreen() {
         <TtsVoicePicker />
         <ProactiveGuideSettings />
 
+        <Pressable style={styles.devCard} onPress={() => router.push('/advanced-settings')}>
+          <Text style={styles.devTitle}>高级设置</Text>
+          <Text style={styles.devDesc}>门槛、口播长短、路测工具（改完立即生效）</Text>
+        </Pressable>
+
         <Pressable style={styles.devCard} onPress={() => router.push('/proactive-guide-map')}>
           <Text style={styles.devTitle}>主动讲解地图</Text>
-          <Text style={styles.devDesc}>查看当前位置 8km 内可能主动播报的候选点</Text>
+          <Text style={styles.devDesc}>查看当前位置可能主动播报的候选点</Text>
         </Pressable>
 
         <Pressable style={styles.devCard} onPress={() => router.push('/rtc-spike')}>

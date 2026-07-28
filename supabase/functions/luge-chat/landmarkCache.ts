@@ -31,7 +31,7 @@ export type LandmarkMapHit = {
   lat: number
   lng: number
   tags: Record<string, string>
-  source: 'cache' | 'amap' | 'osm'
+  source: 'cache' | 'amap' | 'osm' | 'tianditu'
   amap_poi_id?: string | null
   cache_id?: string | null
   cached_story?: string

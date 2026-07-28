@@ -12,12 +12,16 @@ import {
   loadProactiveSettings,
   saveProactiveSettings,
   type ProactiveGuideSettings,
+  type ProactiveSpeakLength,
 } from './proactiveSettings'
 
 type ProactiveGuideContextValue = {
   ready: boolean
   settings: ProactiveGuideSettings
   setEnabled: (enabled: boolean) => Promise<void>
+  updateSettings: (patch: Partial<ProactiveGuideSettings>) => Promise<ProactiveGuideSettings>
+  setSpeakLength: (speakLength: ProactiveSpeakLength) => Promise<void>
+  bumpAnchorNonce: () => Promise<void>
 }
 
 const ProactiveGuideContext = createContext<ProactiveGuideContextValue | null>(null)
@@ -33,18 +37,40 @@ export function ProactiveGuideProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const setEnabled = useCallback(async (enabled: boolean) => {
-    const saved = await saveProactiveSettings({ enabled })
+  const updateSettings = useCallback(async (patch: Partial<ProactiveGuideSettings>) => {
+    const saved = await saveProactiveSettings(patch)
     setSettings(saved)
+    return saved
   }, [])
+
+  const setEnabled = useCallback(
+    async (enabled: boolean) => {
+      await updateSettings({ enabled })
+    },
+    [updateSettings],
+  )
+
+  const setSpeakLength = useCallback(
+    async (speakLength: ProactiveSpeakLength) => {
+      await updateSettings({ speakLength })
+    },
+    [updateSettings],
+  )
+
+  const bumpAnchorNonce = useCallback(async () => {
+    await updateSettings({ anchorNonce: settings.anchorNonce + 1 })
+  }, [settings.anchorNonce, updateSettings])
 
   const value = useMemo(
     () => ({
       ready,
       settings,
       setEnabled,
+      updateSettings,
+      setSpeakLength,
+      bumpAnchorNonce,
     }),
-    [ready, settings, setEnabled],
+    [ready, settings, setEnabled, updateSettings, setSpeakLength, bumpAnchorNonce],
   )
 
   return (

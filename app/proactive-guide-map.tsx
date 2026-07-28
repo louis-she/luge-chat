@@ -15,6 +15,7 @@ import { loadSession } from '../lib/auth'
 import { DEV_LOCATION_PRESETS } from '../lib/devLocation'
 import { ensureLocationPermission, readUserCoords, type UserCoords } from '../lib/location'
 import { useUserLocation } from '../lib/LocationContext'
+import { useProactiveGuideSettings } from '../lib/ProactiveGuideContext'
 import {
   fetchProactivePreviewPois,
   type ProactivePreviewCandidate,
@@ -60,6 +61,9 @@ function coordsAt(lat: number, lng: number, heading: number | null): UserCoords 
 export default function ProactiveGuideMapScreen() {
   const router = useRouter()
   const { coords: liveCoords } = useUserLocation()
+  const { settings } = useProactiveGuideSettings()
+  const scenicRadiusRef = useRef(settings.scenicRadiusKm)
+  scenicRadiusRef.current = settings.scenicRadiusKm
   const [pins, setPins] = useState<MapPin[]>([])
   const [forwardName, setForwardName] = useState<string | null>(null)
   const [queryLat, setQueryLat] = useState<number | null>(null)
@@ -130,6 +134,7 @@ export default function ProactiveGuideMapScreen() {
       const data = await fetchProactivePreviewPois(coords, {
         accessToken: session?.access_token,
         spokenPoiKeys,
+        scenicRadiusKm: scenicRadiusRef.current,
       })
       if (gen !== loadGenRef.current) return
 
@@ -216,7 +221,7 @@ export default function ProactiveGuideMapScreen() {
       </View>
 
       <Text style={styles.hint}>
-        点击地图或拖动蓝色「查询位置」针，按该点拉取 8km 内「风景名胜」候选（已去重；当天讲过的会隐藏）。
+        点击地图或拖动蓝色「查询位置」针，按该点拉取周边「风景名胜」候选（半径见高级设置；已去重；当天讲过的会隐藏）。
       </Text>
 
       <ScrollView

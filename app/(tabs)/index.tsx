@@ -13,7 +13,7 @@ import {
   type ProactiveMapOverlay,
 } from '../../lib/proactiveMapDev'
 import { fetchProactivePreviewPois } from '../../lib/proactivePreview'
-import { DEFAULT_PROACTIVE_SPAN } from '../../lib/proactiveSpan'
+import { settingsToSpanConfig } from '../../lib/proactiveSettings'
 import { useLuge } from '../../lib/LugeContext'
 import { useUserLocation } from '../../lib/LocationContext'
 import { useQuota } from '../../lib/QuotaContext'
@@ -51,6 +51,7 @@ export default function RadarScreen() {
   } = useLuge()
   const { coords } = useUserLocation()
   const { settings: proactiveSettings, ready: proactiveReady } = useProactiveGuideSettings()
+  const proactiveSpan = settingsToSpanConfig(proactiveSettings)
   const { quota, refreshQuota, showExhausted } = useQuota()
   const [voiceBlocked, setVoiceBlocked] = useState(false)
   const [companionMenuOpen, setCompanionMenuOpen] = useState(false)
@@ -58,7 +59,7 @@ export default function RadarScreen() {
   const [proactiveMapOverlay, setProactiveMapOverlay] = useState<ProactiveMapOverlay>(
     () => ({
       ...EMPTY_PROACTIVE_MAP_OVERLAY,
-      spanRadiusKm: DEFAULT_PROACTIVE_SPAN.minDistanceKm,
+      spanRadiusKm: 20,
     }),
   )
   const proactiveCandidatesRef = useRef<ProactiveMapMarker[]>([])
@@ -193,18 +194,20 @@ export default function RadarScreen() {
       if (!isActive) {
         setProactiveMapOverlay({
           ...EMPTY_PROACTIVE_MAP_OVERLAY,
-          spanRadiusKm: DEFAULT_PROACTIVE_SPAN.minDistanceKm,
+          spanRadiusKm: proactiveSpan.minDistanceKm,
         })
       }
       return
     }
 
+    // 只跟经纬度粗粒度走，避免 GPS/航向融合每 500ms 重建 coords 对象就狂打高德
     let cancelled = false
     const loadPreview = async () => {
       try {
         const session = await loadSession()
         const data = await fetchProactivePreviewPois(coords, {
           accessToken: session?.access_token,
+          scenicRadiusKm: proactiveSettings.scenicRadiusKm,
         })
         if (cancelled) return
         const cands: ProactiveMapMarker[] = data.candidates.map((c, i) => ({
@@ -251,11 +254,11 @@ export default function RadarScreen() {
       clearInterval(timer)
     }
   }, [
-    coords,
-    coords?.latitude,
-    coords?.longitude,
+    coords?.latitude != null ? Math.round(coords.latitude * 1e4) / 1e4 : null,
+    coords?.longitude != null ? Math.round(coords.longitude * 1e4) / 1e4 : null,
     isActive,
     proactiveSettings.enabled,
+    proactiveSettings.scenicRadiusKm,
   ])
 
   const handleProactiveQuotaExhausted = useCallback(
@@ -274,6 +277,7 @@ export default function RadarScreen() {
       proactiveSettings.enabled &&
       (legacyVoice || (rtcPath && volc.inCall)),
     coords,
+    settings: proactiveSettings,
     busy:
       isThinking ||
       (legacyVoice && (voiceBusy || voice.isListening)),

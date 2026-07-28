@@ -9,6 +9,7 @@
 
 | 文档 | 内容 |
 |------|------|
+| [../product/core-flows.md](../product/core-flows.md) | **真机核心流程**（问路 / 主动讲解，产品+技术） |
 | [database-migrations.md](./database-migrations.md) | 加字段、减字段、PostGIS 迁移、推线上 |
 | [supabase-production.md](./supabase-production.md) | 线上 Docker 自建 Supabase（`api.luge.chat`） |
 | [server.md](./server.md) | SSH、sudo、重启、Docker、内核调优 |

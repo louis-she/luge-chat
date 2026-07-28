@@ -17,6 +17,10 @@ export type LugeChatRequest = {
   min_poi_rating?: number
   /** 当天已主动讲过的 POI 键（客户端上海日历日） */
   spoken_poi_keys?: string[]
+  /** 主动讲解口播篇幅：short | medium | long */
+  speak_length?: 'short' | 'medium' | 'long'
+  /** 风景名胜搜索半径（公里） */
+  scenic_radius_km?: number
   recent_messages?: ChatTurnMessage[]
   proactive_context?: {
     poi_name: string
@@ -55,7 +59,7 @@ export type LugeChatResponse = {
     category?: string
     distance_m?: number
     direction?: string
-    source?: 'amap' | 'osm' | 'cache'
+    source?: 'amap' | 'osm' | 'cache' | 'tianditu'
     lat?: number
     lng?: number
     amap_poi_id?: string | null
@@ -250,7 +254,11 @@ export async function askLugeGuide(
 export async function proactiveLugeGuide(
   coords: UserCoords,
   accessToken?: string | null,
-  options?: { spokenPoiKeys?: string[] },
+  options?: {
+    spokenPoiKeys?: string[]
+    speakLength?: 'short' | 'medium' | 'long'
+    scenicRadiusKm?: number
+  },
 ): Promise<LugeChatResponse> {
   const { headers, deviceId } = await functionHeaders(accessToken)
   const body: LugeChatRequest = {
@@ -261,6 +269,8 @@ export async function proactiveLugeGuide(
     device_id: deviceId,
     debug: __DEV__,
     spoken_poi_keys: options?.spokenPoiKeys ?? [],
+    speak_length: options?.speakLength ?? 'short',
+    scenic_radius_km: options?.scenicRadiusKm ?? 8,
   }
 
   const t0 = Date.now()
