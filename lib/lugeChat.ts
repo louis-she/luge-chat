@@ -1,14 +1,10 @@
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './config'
 import { getDeviceId } from './deviceId'
 import type { UserCoords } from './location'
-import { getProactivePoiContext } from './proactiveContext'
 import { isQuotaExhaustedError, type QuotaExhaustedPayload } from './quota'
 
-import type { ChatTurnMessage } from './chatWindow'
-
 export type LugeChatRequest = {
-  message?: string
-  mode?: 'ask' | 'proactive'
+  mode: 'proactive' | 'proactive_preview'
   latitude: number
   longitude: number
   heading?: number | null
@@ -19,16 +15,35 @@ export type LugeChatRequest = {
   spoken_poi_keys?: string[]
   /** 主动讲解口播篇幅：short | medium | long */
   speak_length?: 'short' | 'medium' | 'long'
-  /** 风景名胜搜索半径（公里） */
+  /** 风景名胜搜索半径（公里）— 预览/风景库用；正式主动讲解改由场景底径决定 */
   scenic_radius_km?: number
-  recent_messages?: ChatTurnMessage[]
-  proactive_context?: {
-    poi_name: string
-    amap_poi_id?: string | null
+  /** 场景底径等（主动讲解 / 问路共用偏好） */
+  geo_radius_prefs?: {
+    baseUrbanKm?: number
+    baseTownKm?: number
+    baseWildKm?: number
+    multNearby?: number
+    multWater?: number
+    multMountain?: number
+    multDistant?: number
+    multLandmark?: number
+  }
+  /**
+   * 客户端共享风景库（圈内命中缓存）。有值时服务端跳过高德 around。
+   */
+  cached_scenic_candidates?: Array<{
+    name: string
     lat: number
     lng: number
-    category?: string
-  } | null
+    distance_m?: number | null
+    type?: string
+    amap_poi_id?: string | null
+  }>
+  /** Dev：强制讲解指定 POI（绕过当日已讲过滤，候选收窄为该点） */
+  force_poi_name?: string
+  force_poi_lat?: number
+  force_poi_lng?: number
+  force_poi_type?: string
 }
 
 export type LugeChatDebugStep = {
@@ -49,8 +64,6 @@ export type LugeChatDebug = {
 
 export type LugeChatResponse = {
   answer: string
-  ignored?: boolean
-  ignore_reason?: string | null
   proactive?: boolean
   skipped?: boolean
   skip_reason?: string | null
@@ -65,6 +78,15 @@ export type LugeChatResponse = {
     amap_poi_id?: string | null
     osm_tags?: Record<string, string>
   } | null
+  /** 主动讲解：服务端场景圈/补搜候选，客户端并入黄点库 */
+  scenic_library_upsert?: Array<{
+    name: string
+    lat: number
+    lng: number
+    distance_m?: number | null
+    type?: string
+    amap_poi_id?: string | null
+  }>
   footprint?: {
     id: string
     visit_id: string | null
@@ -189,68 +211,6 @@ async function readNdjsonLugeChat(
   return result
 }
 
-export async function askLugeGuide(
-  message: string,
-  coords: UserCoords,
-  accessToken?: string | null,
-  recentMessages?: ChatTurnMessage[],
-): Promise<LugeChatResponse> {
-  const { headers, deviceId } = await functionHeaders(accessToken)
-  const proactiveContext = getProactivePoiContext()
-  const body: LugeChatRequest = {
-    message,
-    latitude: coords.latitude,
-    longitude: coords.longitude,
-    heading: coords.heading,
-    device_id: deviceId,
-    debug: __DEV__,
-    recent_messages:
-      recentMessages && recentMessages.length > 0 ? recentMessages : undefined,
-    proactive_context: proactiveContext
-      ? {
-          poi_name: proactiveContext.poi_name,
-          amap_poi_id: proactiveContext.amap_poi_id ?? null,
-          lat: proactiveContext.lat,
-          lng: proactiveContext.lng,
-          category: proactiveContext.category,
-        }
-      : null,
-  }
-
-  const t0 = Date.now()
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/luge-chat`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  })
-
-  const contentType = res.headers.get('content-type') ?? ''
-  if (__DEV__ && contentType.includes('application/x-ndjson')) {
-    return readNdjsonLugeChat(res, t0)
-  }
-
-  const data = await res.json().catch(() => ({}))
-  if (__DEV__) {
-    console.log(`[luge] 请求往返 ${Date.now() - t0}ms`)
-  }
-  if (res.status === 402 && isQuotaExhaustedError(data)) {
-    throw new LugeChatQuotaError(data)
-  }
-  if (!res.ok) {
-    const msg =
-      (typeof data.error === 'string' && data.error) ||
-      (typeof data.msg === 'string' && data.msg) ||
-      '路鸽没能回答这个问题'
-    throw new Error(msg)
-  }
-
-  const result = data as LugeChatResponse
-  if (__DEV__ && result.debug) {
-    printLugeChatDebugTimeline(result.debug)
-  }
-  return result
-}
-
 export async function proactiveLugeGuide(
   coords: UserCoords,
   accessToken?: string | null,
@@ -258,6 +218,14 @@ export async function proactiveLugeGuide(
     spokenPoiKeys?: string[]
     speakLength?: 'short' | 'medium' | 'long'
     scenicRadiusKm?: number
+    geoRadiusPrefs?: LugeChatRequest['geo_radius_prefs']
+    cachedScenicCandidates?: LugeChatRequest['cached_scenic_candidates']
+    forcePoi?: {
+      name: string
+      lat: number
+      lng: number
+      type?: string
+    } | null
   },
 ): Promise<LugeChatResponse> {
   const { headers, deviceId } = await functionHeaders(accessToken)
@@ -268,9 +236,19 @@ export async function proactiveLugeGuide(
     heading: coords.heading,
     device_id: deviceId,
     debug: __DEV__,
-    spoken_poi_keys: options?.spokenPoiKeys ?? [],
+    spoken_poi_keys: options?.forcePoi ? [] : options?.spokenPoiKeys ?? [],
     speak_length: options?.speakLength ?? 'short',
     scenic_radius_km: options?.scenicRadiusKm ?? 8,
+    geo_radius_prefs: options?.geoRadiusPrefs,
+    cached_scenic_candidates:
+      options?.cachedScenicCandidates &&
+      options.cachedScenicCandidates.length > 0
+        ? options.cachedScenicCandidates
+        : undefined,
+    force_poi_name: options?.forcePoi?.name,
+    force_poi_lat: options?.forcePoi?.lat,
+    force_poi_lng: options?.forcePoi?.lng,
+    force_poi_type: options?.forcePoi?.type,
   }
 
   const t0 = Date.now()

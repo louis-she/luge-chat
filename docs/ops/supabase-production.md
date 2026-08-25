@@ -45,17 +45,22 @@ sh run.sh pull            # 拉取新镜像
 |------|------|
 | `sandbox-auth` | 开发沙盒（已弃用，可保留） |
 | `wechat-auth` | 微信 OAuth 换票 + 用户注册/登录 |
-| `luge-chat` | 自驾地理问答 + 足迹判定/写入 + 主动讲解 |
+| `luge-chat` | 主动讲解选点/写稿 + 黄点风景库预览（`mode=proactive` / `proactive_preview`） |
 | `footprint-jobs` | 足迹 10min 总结 + 24h 归档（cron 调用） |
 
-`luge-chat` 需在服务器 `.env` 配置 `DEEPSEEK_API_KEY`、`AMAP_WEB_KEY`（须为**高德 Web 服务**类型 Key，非 Android/iOS SDK Key），并在 `docker-compose.yml` 的 `edge-functions` 服务中传入。
+`luge-chat` 需在服务器 `.env` 配置 `DEEPSEEK_API_KEY`、`TIANDITU_KEY`，并在 `docker-compose.yml` 的 `functions` 服务中传入。
 
-如需把「是否回答判定」与「正式回答」拆成两档模型，可额外配置：
+> **`TIANDITU_KEY` 必须是「服务端」类型 key**。天地图控制台默认发的是浏览器端 key，从机房 IP 调用会 403（`code 301012`），即便伪造 Referer 也不行 —— 本地开发机能通不代表线上能通。
+>
+> 2026-08-24 起高德已下线：POI 撞库走自建 PostGIS（`geo_landmarks_cache` + `geo_admin_areas`），逆地理走天地图。`AMAP_WEB_KEY` 已从 `.env` 与 `docker-compose.yml` 移除。
 
-- `DEEPSEEK_JUDGE_MODEL`：第一层低成本判定模型
-- `DEEPSEEK_ANSWER_MODEL`：第二层正式回答模型
+改环境变量后必须 **recreate** 而不是 restart，否则新变量不会注入容器：
 
-若未配置，二者都会回退到 `DEEPSEEK_MODEL`。
+```bash
+ssh luge@luge.chat 'cd ~/supabase-project && sh run.sh recreate functions'
+```
+
+可选：`DEEPSEEK_JUDGE_MODEL` 覆盖主动讲解判定模型；未配置则回退到 `DEEPSEEK_MODEL`。
 
 `footprint-jobs` 需配置 `FOOTPRINT_CRON_SECRET`，由 crontab 每 5 分钟 POST 触发。
 

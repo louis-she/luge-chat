@@ -167,11 +167,18 @@ export async function callRtcOpenApi<T = unknown>(opts: {
     body: opts.body,
   })
 
-  const res = await fetch(signed.url, {
-    method: 'POST',
-    headers: signed.headers,
-    body: signed.bodyText,
-  })
-  const data = (await res.json().catch(() => ({}))) as T
-  return { ok: res.ok, status: res.status, data }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  try {
+    const res = await fetch(signed.url, {
+      method: 'POST',
+      headers: signed.headers,
+      body: signed.bodyText,
+      signal: controller.signal,
+    })
+    const data = (await res.json().catch(() => ({}))) as T
+    return { ok: res.ok, status: res.status, data }
+  } finally {
+    clearTimeout(timer)
+  }
 }

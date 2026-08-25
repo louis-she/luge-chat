@@ -3,6 +3,7 @@ import {
   classifyFootprint,
   fetchNearbyFootprints,
   summarizeVisitAndFootprint,
+  type ProactivePoiContext,
 } from '../luge-chat/footprint.ts'
 import {
   formatLandmarksForLlm,
@@ -12,6 +13,7 @@ import {
   adminClient,
   getSessionByRtcUserId,
   getSessionLoc,
+  peekTopicPoi,
   type SessionLoc,
 } from '../volc-voice-chat/sessionLoc.ts'
 import { getRoundDialog, markFootprintDone, mergeRoundDialog } from './roundDialog.ts'
@@ -180,6 +182,39 @@ async function buildGeoContext(loc: SessionLoc): Promise<string> {
   return parts.join('\n')
 }
 
+/** 把 session 上的话题锚定交给足迹分类器（否则「它的上游…」会被当成无地理对象而 skip） */
+async function resolveProactiveContext(
+  loc: SessionLoc,
+): Promise<ProactivePoiContext | null> {
+  const name = peekTopicPoi(loc)
+  if (!name) return null
+
+  let lat = loc.lat
+  let lng = loc.lng
+  let category: string | undefined
+  try {
+    const { landmarks } = await lookupNearbyLandmarks({
+      lat: loc.lat,
+      lng: loc.lng,
+      heading: loc.heading,
+      focus: name,
+    })
+    const hit =
+      landmarks.find(
+        (l) => l.name.includes(name) || name.includes(l.name),
+      ) ?? landmarks[0]
+    if (hit) {
+      lat = hit.lat
+      lng = hit.lng
+      category = hit.type
+    }
+  } catch {
+    /* 坐标退化到用户 GPS；分类器仍能靠专名建档 */
+  }
+
+  return { poi_name: name, lat, lng, category }
+}
+
 /** 用户句 + 助手句齐备后写足迹（可多次触发，幂等） */
 export async function tryCompleteVoiceFootprint(opts: {
   taskId: string
@@ -240,7 +275,19 @@ export async function tryCompleteVoiceFootprint(opts: {
     loc.lng,
   )
   const geoContext = await buildGeoContext(loc)
-  const classified = await classifyFootprint(userMessage, geoContext, candidates)
+  const proactiveContext = await resolveProactiveContext(loc)
+  if (proactiveContext) {
+    console.log(
+      `[volc-voice-callback] footprint topic=${proactiveContext.poi_name} round=${roundId}`,
+    )
+  }
+  const classified = await classifyFootprint(
+    userMessage,
+    geoContext,
+    candidates,
+    undefined,
+    proactiveContext,
+  )
   if (classified.decision.action === 'skip') {
     console.log(
       `[volc-voice-callback] footprint skip decision=${classified.decision.reason ?? 'skip'}`,

@@ -4,7 +4,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
@@ -19,7 +18,6 @@ import Animated, {
 import { useEffect, useState } from 'react'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { VoiceWaveform } from './VoiceWaveform'
-import { isDevSimulator } from '../lib/isDevSimulator'
 import { BUBBLE_FADE_MS } from '../lib/bubbleTiming'
 import { colors } from '../lib/theme'
 
@@ -502,79 +500,5 @@ const styles = StyleSheet.create({
     color: colors.radarText,
     fontSize: 15,
     lineHeight: 22,
-  },
-})
-
-export function DevAskBar({
-  onSubmit,
-  disabled,
-}: {
-  onSubmit: (text: string) => void
-  disabled?: boolean
-}) {
-  const insets = useSafeAreaInsets()
-  const [text, setText] = useState(
-    '我前面的河是什么河，有什么典故，上下游是哪',
-  )
-
-  if (!isDevSimulator()) return null
-
-  return (
-    <View style={[devStyles.wrap, { top: insets.top + 8 }]}>
-      <TextInput
-        style={devStyles.input}
-        value={text}
-        onChangeText={setText}
-        placeholder="输入路鸽问题…"
-        placeholderTextColor={colors.radarMuted}
-        multiline
-        editable={!disabled}
-      />
-      <Pressable
-        style={({ pressed }) => [
-          devStyles.btn,
-          pressed && { opacity: 0.9 },
-          disabled && devStyles.btnDisabled,
-        ]}
-        disabled={disabled}
-        onPress={() => onSubmit(text)}
-      >
-        <Text style={devStyles.btnText}>问路鸽</Text>
-      </Pressable>
-    </View>
-  )
-}
-
-const devStyles = StyleSheet.create({
-  wrap: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    zIndex: 20,
-    gap: 8,
-  },
-  input: {
-    backgroundColor: 'rgba(17, 24, 39, 0.92)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(96, 165, 250, 0.25)',
-    color: colors.radarText,
-    fontSize: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    maxHeight: 88,
-  },
-  btn: {
-    alignSelf: 'flex-end',
-    backgroundColor: colors.accent,
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  btnDisabled: { opacity: 0.5 },
-  btnText: {
-    color: '#0f172a',
-    fontWeight: '700',
-    fontSize: 14,
   },
 })

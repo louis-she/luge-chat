@@ -7,10 +7,10 @@
  *   VOLC_VOICE_CALLBACK_SECRET
  */
 
-import { sendExternalTextToSpeech } from './externalTts.ts'
+import { sendExternalTextToSpeech, sendExternalPromptsForLlm, buildTopicAnchorPrompt } from './externalTts.ts'
 import { callRtcOpenApi } from './openApi.ts'
 import { mintRtcAccessToken } from './rtcToken.ts'
-import { touchSessionTask, upsertSessionLoc } from './sessionLoc.ts'
+import { touchSessionTask, upsertSessionLoc, rememberTopicPoi } from './sessionLoc.ts'
 import {
   getQuotaStatus,
   parseQuotaAuth,
@@ -274,6 +274,10 @@ Deno.serve(async (req) => {
         lat,
         lng,
         heading,
+        geoRadiusPrefs:
+          body.geo_radius_prefs && typeof body.geo_radius_prefs === 'object'
+            ? (body.geo_radius_prefs as Record<string, number>)
+            : null,
       })
       console.log(
         `[volc-voice-chat] location room=${roomId} task=${taskId ?? ''} lat=${lat.toFixed(5)} lng=${lng.toFixed(5)} heading=${heading ?? 'n/a'}`,
@@ -292,6 +296,8 @@ Deno.serve(async (req) => {
         typeof body.interrupt_mode === 'number'
           ? Math.min(3, Math.max(1, Math.round(body.interrupt_mode)))
           : 2
+      const topicPoi =
+        typeof body.topic_poi === 'string' ? body.topic_poi.trim() : ''
       await sendExternalTextToSpeech({
         appId,
         roomId,
@@ -299,7 +305,28 @@ Deno.serve(async (req) => {
         text,
         interruptMode,
       })
-      return json({ ok: true, room_id: roomId, task_id: taskId })
+      // F1：播完后钉死当前 POI，下一轮用户追问会带上此指令
+      if (topicPoi) {
+        try {
+          rememberTopicPoi({ roomId, taskId }, topicPoi).catch((e) =>
+            console.warn('[volc-voice-chat] remember topic failed:', e),
+          )
+          await sendExternalPromptsForLlm({
+            appId,
+            roomId,
+            taskId,
+            prompt: buildTopicAnchorPrompt(topicPoi),
+          })
+        } catch (e) {
+          console.warn('[volc-voice-chat] topic anchor failed:', e)
+        }
+      }
+      return json({
+        ok: true,
+        room_id: roomId,
+        task_id: taskId,
+        topic_anchored: Boolean(topicPoi),
+      })
     }
 
     if (action === 'repair_footprints') {

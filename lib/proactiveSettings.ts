@@ -1,5 +1,12 @@
 import * as SecureStore from 'expo-secure-store'
 import type { ProactiveSpanConfig } from './proactiveSpan'
+import {
+  DEFAULT_GEO_RADIUS_PREFS,
+  normalizeGeoRadiusPrefs,
+  type GeoRadiusPrefs,
+} from './geoRadiusPrefs'
+
+export type { GeoRadiusPrefs }
 
 export type ProactiveSpeakLength = 'short' | 'medium' | 'long'
 
@@ -13,8 +20,10 @@ export type ProactiveGuideSettings = {
   minSpeakIntervalMin: number
   /** 主动讲解口播篇幅 */
   speakLength: ProactiveSpeakLength
-  /** 风景名胜周边搜索半径（公里） */
+  /** 风景名胜周边搜索半径（公里）— 主动讲解候选 */
   scenicRadiusKm: number
+  /** 问路 FC：场景底径 + 语意倍率（随 GPS 同步到会话） */
+  geoRadius: GeoRadiusPrefs
   /** 递增后重置客户端查询锚点（路测用） */
   anchorNonce: number
 }
@@ -72,6 +81,7 @@ export const DEFAULT_PROACTIVE_SETTINGS: ProactiveGuideSettings = {
   minSpeakIntervalMin: 15,
   speakLength: 'short',
   scenicRadiusKm: 8,
+  geoRadius: { ...DEFAULT_GEO_RADIUS_PREFS },
   anchorNonce: 0,
 }
 
@@ -100,6 +110,23 @@ export function settingsToSpanConfig(s: ProactiveGuideSettings): ProactiveSpanCo
   }
 }
 
+/**
+ * 黄点预览 / 风景库预热半径：取「周边半径」与三档场景底径的最大值，
+ * 与正式主动讲解 ensureScenicAroundLibrary 一致（避免黄点 8km、讲解 10km 两套圈）。
+ */
+export function scenicLibraryRadiusKm(s: ProactiveGuideSettings): number {
+  return Math.min(
+    50,
+    Math.max(
+      1,
+      s.scenicRadiusKm,
+      s.geoRadius.baseUrbanKm,
+      s.geoRadius.baseTownKm,
+      s.geoRadius.baseWildKm,
+    ),
+  )
+}
+
 function normalize(raw: Partial<ProactiveGuideSettings> & { minRating?: unknown }): ProactiveGuideSettings {
   const speakLength = isSpeakLength(raw.speakLength)
     ? raw.speakLength
@@ -111,6 +138,7 @@ function normalize(raw: Partial<ProactiveGuideSettings> & { minRating?: unknown 
     minSpeakIntervalMin: clamp(Number(raw.minSpeakIntervalMin), 0.1, 180),
     speakLength,
     scenicRadiusKm: clamp(Number(raw.scenicRadiusKm), 1, 50),
+    geoRadius: normalizeGeoRadiusPrefs(raw.geoRadius),
     anchorNonce: Math.max(0, Math.floor(Number(raw.anchorNonce) || 0)),
   }
 }

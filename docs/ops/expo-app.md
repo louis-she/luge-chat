@@ -123,11 +123,11 @@ iOS 模拟器默认坐标在加州。开发模式下 App 会**自动识别**旧�
 
 ### 地理问答（luge-chat）
 
-路鸽启动后，开发环境顶部有「问路鸽」输入框；点左下鸽子可发送示例河问句。流程：高德周边 POI + 逆地理（国内主路径）→ Overpass 兜底 → DeepSeek 总结 → 气泡 + TTS。
+路鸽启动后，开发环境顶部有「问路鸽」输入框；点左下鸽子可发送示例河问句。流程：PostGIS 撞库（地物 + 行政区逆地理）→ DeepSeek 总结 → 气泡 + TTS。
 
 **足迹**：登录后每次问答会经 LLM 判断是否记入足迹（30km 内候选匹配 / 新建 POI）。10 分钟无新消息自动总结；24 小时无活动归档 visit。足迹 Tab 可查看。
 
-`DEEPSEEK_API_KEY` / `AMAP_WEB_KEY` 仅存服务器 Edge Function 环境变量，勿写入客户端。
+`DEEPSEEK_API_KEY` / `TIANDITU_KEY` 仅存服务器 Edge Function 环境变量，勿写入客户端。POI 撞库走自建 PostGIS，天地图只用于逆地理。
 
 定时归档（服务器 crontab，每 5 分钟）：
 

@@ -177,6 +177,7 @@ export async function reportVolcVoiceLocation(opts: {
   lat: number
   lng: number
   heading?: number | null
+  geoRadiusPrefs?: Record<string, number> | null
   accessToken?: string | null
 }): Promise<void> {
   await postVolcVoiceChat(
@@ -188,6 +189,7 @@ export async function reportVolcVoiceLocation(opts: {
       lat: opts.lat,
       lng: opts.lng,
       heading: opts.heading ?? null,
+      geo_radius_prefs: opts.geoRadiusPrefs ?? undefined,
     },
     { timeoutMs: 8_000, accessToken: opts.accessToken },
   )
@@ -198,6 +200,8 @@ export async function speakExternalVolcVoice(opts: {
   roomId: string
   taskId: string
   text: string
+  /** 刚讲的 POI 名：服务端会再发 ExternalPromptsForLLM 锚定追问 */
+  topicPoi?: string | null
   interruptMode?: number
   accessToken?: string | null
 }): Promise<void> {
@@ -207,6 +211,7 @@ export async function speakExternalVolcVoice(opts: {
       room_id: opts.roomId,
       task_id: opts.taskId,
       text: opts.text,
+      topic_poi: opts.topicPoi?.trim() || undefined,
       interrupt_mode: opts.interruptMode ?? 2,
     },
     { timeoutMs: 25_000, accessToken: opts.accessToken },

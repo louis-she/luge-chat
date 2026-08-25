@@ -13,6 +13,7 @@ export type ProactiveMapMarker = {
   lng: number
   name: string
   kind: ProactiveMapMarkerKind
+  type?: string
 }
 
 export type ProactiveMapOverlay = {

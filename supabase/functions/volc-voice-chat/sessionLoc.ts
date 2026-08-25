@@ -12,6 +12,8 @@ export type SessionLoc = {
   lat: number
   lng: number
   heading: number | null
+  geo_radius_prefs?: Record<string, number> | null
+  topic_poi?: string | null
   updated_at?: string
 }
 
@@ -35,8 +37,9 @@ export async function upsertSessionLoc(input: {
   lat: number
   lng: number
   heading?: number | null
+  geoRadiusPrefs?: Record<string, number> | null
 }): Promise<void> {
-  const row = {
+  const row: Record<string, unknown> = {
     room_id: input.roomId,
     task_id: input.taskId?.trim() || '',
     user_id: input.userId?.trim() || null,
@@ -50,10 +53,16 @@ export async function upsertSessionLoc(input: {
         : null,
     updated_at: new Date().toISOString(),
   }
+  if (input.geoRadiusPrefs && typeof input.geoRadiusPrefs === 'object') {
+    row.geo_radius_prefs = input.geoRadiusPrefs
+  }
   const existing = await getSessionLoc({ roomId: input.roomId })
   if (existing) {
     if (row.luge_user_id == null) row.luge_user_id = existing.luge_user_id
     if (row.device_key == null) row.device_key = existing.device_key
+    if (row.geo_radius_prefs == null && existing.geo_radius_prefs) {
+      row.geo_radius_prefs = existing.geo_radius_prefs
+    }
   }
   const { error } = await adminClient()
     .from('voice_chat_session_loc')
@@ -70,7 +79,7 @@ export async function getSessionLoc(opts: {
     const { data, error } = await db
       .from('voice_chat_session_loc')
       .select(
-        'room_id,task_id,user_id,luge_user_id,device_key,lat,lng,heading,updated_at',
+        'room_id,task_id,user_id,luge_user_id,device_key,lat,lng,heading,geo_radius_prefs,topic_poi,updated_at',
       )
       .eq('room_id', opts.roomId)
       .maybeSingle()
@@ -84,7 +93,7 @@ export async function getSessionLoc(opts: {
     const { data, error } = await db
       .from('voice_chat_session_loc')
       .select(
-        'room_id,task_id,user_id,luge_user_id,device_key,lat,lng,heading,updated_at',
+        'room_id,task_id,user_id,luge_user_id,device_key,lat,lng,heading,geo_radius_prefs,topic_poi,updated_at',
       )
       .eq('task_id', opts.taskId)
       .order('updated_at', { ascending: false })
@@ -108,7 +117,7 @@ export async function getSessionByRtcUserId(
   const { data, error } = await adminClient()
     .from('voice_chat_session_loc')
     .select(
-      'room_id,task_id,user_id,luge_user_id,device_key,lat,lng,heading,updated_at',
+      'room_id,task_id,user_id,luge_user_id,device_key,lat,lng,heading,geo_radius_prefs,topic_poi,updated_at',
     )
     .eq('user_id', id)
     .order('updated_at', { ascending: false })
@@ -159,4 +168,35 @@ export async function touchSessionTask(opts: {
   } catch (e) {
     console.warn('[sessionLoc] touch insert failed:', e)
   }
+}
+
+/** 主动讲解锚定的 POI（写入 session 行，供 callback isolate 读取） */
+export async function rememberTopicPoi(
+  opts: { roomId?: string; taskId?: string },
+  poiName: string,
+): Promise<void> {
+  const poi = poiName.trim().slice(0, 40)
+  if (!poi) return
+  const db = adminClient()
+  const patch = { topic_poi: poi, updated_at: new Date().toISOString() }
+  if (opts.roomId?.trim()) {
+    const { error } = await db
+      .from('voice_chat_session_loc')
+      .update(patch)
+      .eq('room_id', opts.roomId.trim())
+    if (error) console.warn('[sessionLoc] remember topic by room:', error.message)
+    return
+  }
+  if (opts.taskId?.trim()) {
+    const { error } = await db
+      .from('voice_chat_session_loc')
+      .update(patch)
+      .eq('task_id', opts.taskId.trim())
+    if (error) console.warn('[sessionLoc] remember topic by task:', error.message)
+  }
+}
+
+export function peekTopicPoi(session: SessionLoc | null | undefined): string | null {
+  const poi = session?.topic_poi?.trim()
+  return poi || null
 }

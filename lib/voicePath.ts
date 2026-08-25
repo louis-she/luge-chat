@@ -1,9 +1,7 @@
-import { isDevSimulator } from './isDevSimulator'
-
-/** 真机雷达页是否走火山 RTC（方案甲）；模拟器仍用 HTTP+本地 ASR */
+/**
+ * 语音主路径：火山 RTC（真机「打电话」）。
+ * HTTP `luge-chat` ask / 本地 ASR 已下线；主动讲解仍走 luge-chat mode=proactive。
+ */
 export function isRtcVoicePath(): boolean {
-  if (isDevSimulator()) return false
-  const mode = process.env.EXPO_PUBLIC_LUGE_VOICE_PATH?.trim().toLowerCase()
-  if (mode === 'legacy' || mode === 'http') return false
   return true
 }

@@ -90,3 +90,32 @@ export async function getRoundDialog(
     .maybeSingle()
   return (data as RoundDialog) ?? null
 }
+
+/** 最近若干轮对话（按 updated_at），供意图纠错旁路 */
+export async function listRecentRoundDialog(
+  taskId: string,
+  limit = 8,
+): Promise<Array<{ role: 'user' | 'assistant'; text: string }>> {
+  const id = taskId.trim()
+  if (!id) return []
+  const { data, error } = await adminClient()
+    .from('voice_chat_round_dialog')
+    .select('user_text,assistant_text,updated_at,round_id')
+    .eq('task_id', id)
+    .order('updated_at', { ascending: false })
+    .limit(Math.min(Math.max(limit, 1), 20))
+  if (error) {
+    console.warn('[roundDialog] list recent failed:', error.message)
+    return []
+  }
+  const rows = [...(data ?? [])].reverse()
+  const out: Array<{ role: 'user' | 'assistant'; text: string }> = []
+  for (const row of rows) {
+    const u = typeof row.user_text === 'string' ? row.user_text.trim() : ''
+    const a =
+      typeof row.assistant_text === 'string' ? row.assistant_text.trim() : ''
+    if (u) out.push({ role: 'user', text: u })
+    if (a) out.push({ role: 'assistant', text: a.slice(0, 240) })
+  }
+  return out
+}

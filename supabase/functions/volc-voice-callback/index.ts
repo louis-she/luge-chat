@@ -9,9 +9,18 @@ import {
   formatLandmarksForLlm,
   lookupNearbyLandmarks,
 } from '../volc-voice-chat/nearbyLandmarks.ts'
-import { getSessionLoc } from '../volc-voice-chat/sessionLoc.ts'
+import { sendExternalTextToSpeech } from '../volc-voice-chat/externalTts.ts'
+import {
+  getSessionLoc,
+  peekTopicPoi,
+  type SessionLoc,
+} from '../volc-voice-chat/sessionLoc.ts'
 import { VOICE_CHAT_API_VERSION } from '../volc-voice-chat/voiceChatConfig.ts'
 import { chargeAnswerFinish } from './quotaCharge.ts'
+import { normalizeUserUtterance } from './normalizeUtterance.ts'
+import { listRecentRoundDialog } from './roundDialog.ts'
+import { favoriteCurrentTopicPoi } from './favoritePoi.ts'
+import { searchPlaceBackground } from './placeBackground.ts'
 import {
   extractStageText,
   ingestSubtitlePayload,
@@ -19,6 +28,12 @@ import {
   sweepPendingFootprintsForTask,
   tryCompleteVoiceFootprint,
 } from './voiceFootprint.ts'
+
+/** 查周边总预算：含逆地理 + around；超时也必须回传 FunctionCallResult */
+const FC_LOOKUP_BUDGET_MS = 7000
+
+const FC_FAIL_SPEECH =
+  '这边暂时查不到准确的位置信息，你可以换个说法再问我，或者稍后再试。'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -258,8 +273,144 @@ function looksLikeFunctionCall(payload: Record<string, unknown>): boolean {
 
 async function executeTool(
   call: ToolCall,
-  session: { lat: number; lng: number; heading: number | null } | null,
+  session: {
+    lat: number
+    lng: number
+    heading: number | null
+    geoRadiusPrefs?: Record<string, number> | null
+    topicPoi?: string | null
+  } | null,
+  meta: { taskId: string; loc: SessionLoc | null },
 ): Promise<string> {
+  if (call.name === 'normalize_user_utterance') {
+    const utterance =
+      typeof call.arguments.utterance === 'string'
+        ? call.arguments.utterance
+        : typeof call.arguments.text === 'string'
+          ? call.arguments.text
+          : typeof call.arguments.query === 'string'
+            ? call.arguments.query
+            : ''
+    const topicHint =
+      typeof call.arguments.topic_hint === 'string'
+        ? call.arguments.topic_hint.trim()
+        : typeof call.arguments.topic_poi === 'string'
+          ? call.arguments.topic_poi.trim()
+          : ''
+    const topicPoi = topicHint || session?.topicPoi?.trim() || peekTopicPoi(session)
+    const t0 = Date.now()
+    try {
+      const recentDialog = await listRecentRoundDialog(meta.taskId, 8)
+      const result = await Promise.race([
+        normalizeUserUtterance({
+          utterance,
+          topicPoi,
+          recentDialog,
+        }),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('normalize_timeout')), 4500)
+        }),
+      ])
+      console.log(
+        `[volc-voice-callback] FC normalize action=${result.action}` +
+          ` local=${result.local_filler ? 1 : 0}` +
+          ` focus=${result.focus_poi ?? '-'}` +
+          `${result.corrected_text !== result.original ? ` corr=${result.corrected_text.slice(0, 24)}` : ''}` +
+          ` ${Date.now() - t0}ms`,
+      )
+      return JSON.stringify(result)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[volc-voice-callback] FC normalize failed ${Date.now() - t0}ms:`, msg)
+      return JSON.stringify({
+        ok: true,
+        action: 'answer',
+        original: utterance,
+        corrected_text: utterance,
+        focus_poi: topicPoi,
+        reason: msg === 'normalize_timeout' ? 'timeout pass-through' : 'error pass-through',
+        reply_hint:
+          '预检超时/失败，请按用户原话尽力回答；涉及周边地标时调用 get_nearby_landmarks。',
+      })
+    }
+  }
+
+  if (call.name === 'favorite_current_poi') {
+    const poiHint =
+      typeof call.arguments.poi_name === 'string'
+        ? call.arguments.poi_name
+        : typeof call.arguments.focus === 'string'
+          ? call.arguments.focus
+          : ''
+    const utterance =
+      typeof call.arguments.utterance === 'string'
+        ? call.arguments.utterance
+        : typeof call.arguments.text === 'string'
+          ? call.arguments.text
+          : ''
+    const t0 = Date.now()
+    try {
+      const result = await Promise.race([
+        favoriteCurrentTopicPoi({
+          session: meta.loc,
+          poiHint,
+          utterance,
+        }),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('favorite_timeout')), 5000)
+        }),
+      ])
+      console.log(
+        `[volc-voice-callback] FC favorite status=${result.status}` +
+          ` poi=${result.poi_name ?? '-'}` +
+          ` ${Date.now() - t0}ms`,
+      )
+      return JSON.stringify(result)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[volc-voice-callback] FC favorite failed ${Date.now() - t0}ms:`, msg)
+      return JSON.stringify({
+        ok: false,
+        status: 'error',
+        error: msg === 'favorite_timeout' ? 'favorite_timeout' : 'favorite_failed',
+        reply_hint: '收藏失败了，请让用户稍后再试，不要编造已收藏。',
+      })
+    }
+  }
+
+  if (call.name === 'search_place_background') {
+    const query =
+      typeof call.arguments.query === 'string'
+        ? call.arguments.query
+        : typeof call.arguments.poi_name === 'string'
+          ? call.arguments.poi_name
+          : typeof call.arguments.focus === 'string'
+            ? call.arguments.focus
+            : ''
+    const t0 = Date.now()
+    try {
+      const result = await Promise.race([
+        searchPlaceBackground(query),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('wiki_timeout')), 4500)
+        }),
+      ])
+      const hits = Array.isArray(result.hits) ? result.hits.length : 0
+      console.log(
+        `[volc-voice-callback] FC place_bg query=${query.slice(0, 24) || '-'} hits=${hits} ${Date.now() - t0}ms`,
+      )
+      return JSON.stringify(result)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[volc-voice-callback] FC place_bg failed ${Date.now() - t0}ms:`, msg)
+      return JSON.stringify({
+        ok: false,
+        error: msg === 'wiki_timeout' ? 'wiki_timeout' : 'wiki_failed',
+        reply_hint: '背景检索失败；请用自身知识简短回答，不要编造典故。',
+      })
+    }
+  }
+
   if (call.name !== 'get_nearby_landmarks') {
     return JSON.stringify({
       ok: false,
@@ -271,17 +422,10 @@ async function executeTool(
     return JSON.stringify({
       ok: false,
       error: 'no_session_location',
-      hint: '客户端尚未上报 GPS',
+      hint: '客户端尚未上报 GPS，请稍后再问周边。',
     })
   }
 
-  const radiusRaw = call.arguments.radius_m ?? call.arguments.radiusM
-  const radiusM =
-    typeof radiusRaw === 'number'
-      ? radiusRaw
-      : typeof radiusRaw === 'string'
-        ? Number(radiusRaw)
-        : undefined
   const focus =
     typeof call.arguments.focus === 'string'
       ? call.arguments.focus
@@ -289,24 +433,55 @@ async function executeTool(
         ? call.arguments.query
         : undefined
 
-  const { landmarks, note } = await lookupNearbyLandmarks({
-    lat: session.lat,
-    lng: session.lng,
-    heading: session.heading,
-    radiusM: Number.isFinite(radiusM) ? radiusM : undefined,
-    focus,
-  })
+  const t0 = Date.now()
+  try {
+    const { landmarks, note, fuzzyFocus } = await Promise.race([
+      lookupNearbyLandmarks({
+        lat: session.lat,
+        lng: session.lng,
+        heading: session.heading,
+        focus,
+        geoRadiusPrefs: session.geoRadiusPrefs ?? null,
+      }),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error('lookup_timeout')),
+          FC_LOOKUP_BUDGET_MS,
+        )
+      }),
+    ])
 
-  console.log(
-    `[volc-voice-callback] FC get_nearby_landmarks hits=${landmarks.length} note=${note}`,
-  )
+    console.log(
+      `[volc-voice-callback] FC get_nearby_landmarks focus=${focus ?? '-'} hits=${landmarks.length}` +
+        `${fuzzyFocus ? ` fuzzy=${fuzzyFocus.asked}→${fuzzyFocus.matched}` : ''}` +
+        ` note=${note} ${Date.now() - t0}ms`,
+    )
 
-  return formatLandmarksForLlm(landmarks, {
-    lat: session.lat,
-    lng: session.lng,
-    heading: session.heading,
-    note,
-  })
+    return formatLandmarksForLlm(landmarks, {
+      lat: session.lat,
+      lng: session.lng,
+      heading: session.heading,
+      note,
+      fuzzyFocus,
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.warn(
+      `[volc-voice-callback] FC lookup failed ${Date.now() - t0}ms:`,
+      msg,
+    )
+    return JSON.stringify({
+      ok: false,
+      error: msg === 'lookup_timeout' ? 'lookup_timeout' : 'lookup_failed',
+      hint: '暂时查不到周边地标，请用口语简短描述再问一次。',
+      user_location: {
+        lat: session.lat,
+        lng: session.lng,
+        heading: session.heading,
+      },
+      landmarks: [],
+    })
+  }
 }
 
 async function sendFunctionCallResult(opts: {
@@ -426,19 +601,54 @@ async function handleFunctionCalling(
 
   const loc = await getSessionLoc({ roomId, taskId })
   const session = loc
-    ? { lat: loc.lat, lng: loc.lng, heading: loc.heading }
+    ? {
+        lat: loc.lat,
+        lng: loc.lng,
+        heading: loc.heading,
+        geoRadiusPrefs:
+          loc.geo_radius_prefs && typeof loc.geo_radius_prefs === 'object'
+            ? (loc.geo_radius_prefs as Record<string, number>)
+            : null,
+        topicPoi: peekTopicPoi(loc),
+      }
     : null
 
   const results: Array<{ ToolCallID: string; Content: string }> = []
   for (const call of toolCalls) {
-    const content = await executeTool(call, session)
-    results.push({ ToolCallID: call.id, Content: content })
+    try {
+      const content = await executeTool(call, session, { taskId, loc })
+      results.push({ ToolCallID: call.id, Content: content })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error(`[volc-voice-callback] executeTool crash ${call.name}:`, msg)
+      results.push({
+        ToolCallID: call.id,
+        Content: JSON.stringify({
+          ok: false,
+          error: 'tool_crash',
+          hint: '查周边出错了，请稍后再试。',
+        }),
+      })
+    }
   }
 
   try {
     await sendFunctionCallResult({ appId, roomId, taskId, results })
   } catch (e) {
     console.error('[volc-voice-callback] FunctionCallResult failed:', e)
+    // 回传失败时火山会一直等工具结果 → 用户听不到；用 External TTS 说人话兜底
+    try {
+      await sendExternalTextToSpeech({
+        appId,
+        roomId,
+        taskId,
+        text: FC_FAIL_SPEECH,
+        interruptMode: 1,
+      })
+      console.log('[volc-voice-callback] FC fail fallback ExternalTTS ok')
+    } catch (ttsErr) {
+      console.error('[volc-voice-callback] FC fail fallback TTS failed:', ttsErr)
+    }
   }
   return true
 }

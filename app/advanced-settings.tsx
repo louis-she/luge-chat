@@ -150,13 +150,111 @@ export default function AdvancedSettingsScreen() {
           })}
         </View>
 
-        <Text style={styles.section}>风景名胜搜索半径</Text>
+        <Text style={styles.section}>风景名胜搜索半径（预览 / 风景库预热）</Text>
+        <Text style={styles.sectionHint}>
+          黄点实际取「本值」与下方三档场景底径的最大值（上限 50km），与主动讲解风景库一致。不是固定
+          50km。
+        </Text>
         <NumField
           label="周边半径"
-          hint="主动讲解 / 预览地图拉候选 POI 的范围"
+          hint="黄点预览与风景库预热；正式主动讲解场景圈另见场景底径"
           value={settings.scenicRadiusKm}
           suffix="km"
           onCommit={(n) => void updateSettings({ scenicRadiusKm: n })}
+        />
+
+        <Text style={styles.section}>问路 / 主动讲解 · 场景与语意半径</Text>
+        <Text style={styles.sectionHint}>
+          问路：场景底径 × 语意倍率（上限 50km）。主动讲解：只用场景底径，不乘语意倍率。通话中随
+          GPS 同步。详见 core-flows §4.4.1 / §5.4。
+        </Text>
+        <NumField
+          label="城市场景底径"
+          hint="有街道门牌 / 「街道」行政区"
+          value={settings.geoRadius.baseUrbanKm}
+          suffix="km"
+          onCommit={(n) =>
+            void updateSettings({
+              geoRadius: { ...settings.geoRadius, baseUrbanKm: n },
+            })
+          }
+        />
+        <NumField
+          label="城镇场景底径"
+          hint="镇/乡，非明显野外国道"
+          value={settings.geoRadius.baseTownKm}
+          suffix="km"
+          onCommit={(n) =>
+            void updateSettings({
+              geoRadius: { ...settings.geoRadius, baseTownKm: n },
+            })
+          }
+        />
+        <NumField
+          label="野外场景底径"
+          hint="镇乡 + 国道/高速/景区路等"
+          value={settings.geoRadius.baseWildKm}
+          suffix="km"
+          onCommit={(n) =>
+            void updateSettings({
+              geoRadius: { ...settings.geoRadius, baseWildKm: n },
+            })
+          }
+        />
+        <NumField
+          label="近处倍率"
+          hint="「旁边有什么」等泛问"
+          value={settings.geoRadius.multNearby}
+          suffix="×"
+          onCommit={(n) =>
+            void updateSettings({
+              geoRadius: { ...settings.geoRadius, multNearby: n },
+            })
+          }
+        />
+        <NumField
+          label="水系倍率"
+          hint="河 / 湖 / 水库 / 有水吗"
+          value={settings.geoRadius.multWater}
+          suffix="×"
+          onCommit={(n) =>
+            void updateSettings({
+              geoRadius: { ...settings.geoRadius, multWater: n },
+            })
+          }
+        />
+        <NumField
+          label="山岳倍率"
+          hint="山 / 雪山 / 那座山"
+          value={settings.geoRadius.multMountain}
+          suffix="×"
+          onCommit={(n) =>
+            void updateSettings({
+              geoRadius: { ...settings.geoRadius, multMountain: n },
+            })
+          }
+        />
+        <NumField
+          label="远景倍率"
+          hint="远处 / 远方 / 很远"
+          value={settings.geoRadius.multDistant}
+          suffix="×"
+          onCommit={(n) =>
+            void updateSettings({
+              geoRadius: { ...settings.geoRadius, multDistant: n },
+            })
+          }
+        />
+        <NumField
+          label="地标倍率"
+          hint="桥 / 寺 / 景点等"
+          value={settings.geoRadius.multLandmark}
+          suffix="×"
+          onCommit={(n) =>
+            void updateSettings({
+              geoRadius: { ...settings.geoRadius, multLandmark: n },
+            })
+          }
         />
 
         <Text style={styles.section}>路测工具</Text>

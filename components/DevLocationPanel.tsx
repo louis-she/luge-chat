@@ -4,13 +4,13 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { DEV_LOCATION_PRESETS } from '../lib/devLocation'
-import { isDevSimulator } from '../lib/isDevSimulator'
 import { useUserLocation } from '../lib/LocationContext'
 import { DEV_DEFAULT_LOCATION } from '../lib/location'
 import { colors, spacing } from '../lib/theme'
@@ -20,10 +20,17 @@ function formatCoord(n: number) {
 }
 
 export function DevLocationPanel() {
-  if (!isDevSimulator()) return null
+  if (!__DEV__) return null
 
   const insets = useSafeAreaInsets()
-  const { coords, manualLocation, setManualLocation, clearManualLocation } = useUserLocation()
+  const {
+    coords,
+    manualLocation,
+    setManualLocation,
+    clearManualLocation,
+    mapAutoRecenter,
+    setMapAutoRecenter,
+  } = useUserLocation()
   const [open, setOpen] = useState(false)
   const [lat, setLat] = useState('')
   const [lng, setLng] = useState('')
@@ -79,8 +86,24 @@ export function DevLocationPanel() {
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
             <Text style={styles.title}>开发 · 测试位置</Text>
             <Text style={styles.hint}>
-              开启手动位置后，地图与问路 API 均使用此处坐标，不再读取 GPS。
+              开启手动位置后，地图与问路 API 均使用此处坐标，不再读取 GPS。也可在雷达地图上长按直接落点。
             </Text>
+
+            <View style={styles.switchRow}>
+              <View style={styles.switchCopy}>
+                <Text style={styles.switchLabel}>自动切回当前位置</Text>
+                <Text style={styles.switchHint}>
+                  拖动或讲解跟镜后，几秒自动回到定位点（手动位时回到测试点，不会跟回真实
+                  GPS）
+                </Text>
+              </View>
+              <Switch
+                value={mapAutoRecenter}
+                onValueChange={(v) => void setMapAutoRecenter(v)}
+                trackColor={{ false: '#cbd5e1', true: '#93c5fd' }}
+                thumbColor={mapAutoRecenter ? '#2563eb' : '#f8fafc'}
+              />
+            </View>
 
             <Text style={styles.section}>快捷地点</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetRow}>
@@ -209,6 +232,30 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: colors.lightMuted,
     marginBottom: 14,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 12,
+  },
+  switchCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  switchLabel: {
+    color: colors.lightText,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  switchHint: {
+    color: colors.lightMuted,
+    fontSize: 11,
+    lineHeight: 15,
   },
   section: {
     fontSize: 13,

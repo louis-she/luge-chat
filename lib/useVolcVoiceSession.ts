@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadSession } from './auth'
+import { getCachedProactiveSettings } from './proactiveSettings'
 import { ensureLocationPermission, peekUserCoords, readUserCoords } from './location'
 import { getSpeechRecognitionModule } from './speechRecognition'
 import { volcRtcClient } from './volcRtcClient'
@@ -48,6 +49,7 @@ export function useVolcVoiceSession() {
     const ok = await ensureLocationPermission()
     if (!ok) return
     const coords = peekUserCoords() ?? (await readUserCoords())
+    const geo = getCachedProactiveSettings().geoRadius
     await reportVolcVoiceLocation({
       roomId: s.room_id,
       taskId,
@@ -55,6 +57,7 @@ export function useVolcVoiceSession() {
       lat: coords.latitude,
       lng: coords.longitude,
       heading: coords.heading,
+      geoRadiusPrefs: geo,
       accessToken: accessTokenRef.current,
     })
   }, [])
@@ -155,25 +158,32 @@ export function useVolcVoiceSession() {
     }
   }, [])
 
-  const speakExternal = useCallback(async (text: string): Promise<boolean> => {
-    const t = text.trim()
-    const s = sessionRef.current
-    const taskId = taskIdRef.current
-    if (!t || !s || !taskId || !inCall) return false
-    try {
-      await speakExternalVolcVoice({
-        roomId: s.room_id,
-        taskId,
-        text: t,
-        interruptMode: 2,
-        accessToken: accessTokenRef.current,
-      })
-      return true
-    } catch (e) {
-      if (__DEV__) console.warn('[volc proactive tts]', e)
-      return false
-    }
-  }, [inCall])
+  const speakExternal = useCallback(
+    async (
+      text: string,
+      meta?: { topicPoi?: string | null },
+    ): Promise<boolean> => {
+      const t = text.trim()
+      const s = sessionRef.current
+      const taskId = taskIdRef.current
+      if (!t || !s || !taskId || !inCall) return false
+      try {
+        await speakExternalVolcVoice({
+          roomId: s.room_id,
+          taskId,
+          text: t,
+          topicPoi: meta?.topicPoi,
+          interruptMode: 2,
+          accessToken: accessTokenRef.current,
+        })
+        return true
+      } catch (e) {
+        if (__DEV__) console.warn('[volc proactive tts]', e)
+        return false
+      }
+    },
+    [inCall],
+  )
 
   useEffect(() => {
     return () => {

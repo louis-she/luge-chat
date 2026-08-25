@@ -17,6 +17,10 @@ import {
   saveDevLocationOverride,
   type DevLocationOverride,
 } from './devLocation'
+import {
+  loadMapAutoRecenter,
+  saveMapAutoRecenter,
+} from './devMapPrefs'
 import { isDevSimulator } from './isDevSimulator'
 import { HeadingFusion, isValidHeadingDeg } from './heading'
 import {
@@ -37,6 +41,9 @@ type LocationContextValue = {
     input: Omit<DevLocationOverride, 'enabled'> & { enabled?: boolean },
   ) => Promise<void>
   clearManualLocation: () => Promise<void>
+  /** Dev：拖动/讲解后是否自动切回「当前位置」（手动位时切回测试点，非系统 GPS） */
+  mapAutoRecenter: boolean
+  setMapAutoRecenter: (on: boolean) => Promise<void>
 }
 
 const LocationContext = createContext<LocationContextValue | null>(null)
@@ -47,6 +54,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const [manualLocation, setManualLocationState] = useState<DevLocationOverride | null>(
     null,
   )
+  const [mapAutoRecenter, setMapAutoRecenterState] = useState(true)
   const watchPosRef = useRef<Location.LocationSubscription | null>(null)
   const watchHeadRef = useRef<Location.LocationSubscription | null>(null)
   const accelRef = useRef<{ remove: () => void } | null>(null)
@@ -173,6 +181,11 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     await startWatch()
   }, [startWatch])
 
+  const setMapAutoRecenter = useCallback(async (on: boolean) => {
+    setMapAutoRecenterState(on)
+    await saveMapAutoRecenter(on)
+  }, [])
+
   const refresh = useCallback(async () => {
     if (isDevSimulator()) {
       const override = await loadDevLocationOverride()
@@ -208,7 +221,9 @@ export function LocationProvider({ children }: { children: ReactNode }) {
 
     async function bootstrap() {
       try {
-        if (isDevSimulator()) {
+        if (__DEV__) {
+          const auto = await loadMapAutoRecenter()
+          if (!cancelled) setMapAutoRecenterState(auto)
           const override = await loadDevLocationOverride()
           if (cancelled) return
           if (override) {
@@ -238,8 +253,19 @@ export function LocationProvider({ children }: { children: ReactNode }) {
       manualLocation,
       setManualLocation,
       clearManualLocation,
+      mapAutoRecenter,
+      setMapAutoRecenter,
     }),
-    [coords, loading, refresh, manualLocation, setManualLocation, clearManualLocation],
+    [
+      coords,
+      loading,
+      refresh,
+      manualLocation,
+      setManualLocation,
+      clearManualLocation,
+      mapAutoRecenter,
+      setMapAutoRecenter,
+    ],
   )
 
   return (

@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native'
 import { DevLocationPanel } from '../../components/DevLocationPanel'
-import { DevAskBar, LugeCompanion } from '../../components/LugeCompanion'
-import { RadarMap } from '../../components/RadarMap'
+import { LugeCompanion } from '../../components/LugeCompanion'
+import { RadarMap, type SpeakFocusPoi } from '../../components/RadarMap'
 import { StartLugeButton } from '../../components/StartLugeButton'
 import { loadSession } from '../../lib/auth'
 import {
@@ -13,47 +20,38 @@ import {
   type ProactiveMapOverlay,
 } from '../../lib/proactiveMapDev'
 import { fetchProactivePreviewPois } from '../../lib/proactivePreview'
-import { settingsToSpanConfig } from '../../lib/proactiveSettings'
+import { peekScenicLibrary, clearScenicLibrary } from '../../lib/scenicAroundCache'
+import { settingsToSpanConfig, scenicLibraryRadiusKm } from '../../lib/proactiveSettings'
+import { haversineKm } from '../../lib/proactiveSpan'
 import { useLuge } from '../../lib/LugeContext'
 import { useUserLocation } from '../../lib/LocationContext'
 import { useQuota } from '../../lib/QuotaContext'
 import { formatQuotaLabel } from '../../lib/quota'
-import { useAutoVoiceConversation } from '../../lib/useAutoVoiceConversation'
 import { useProactiveGuide } from '../../lib/useProactiveGuide'
 import { useProactiveGuideSettings } from '../../lib/ProactiveGuideContext'
-import { useVoiceInput } from '../../lib/useVoiceInput'
 import { LugeChatQuotaError } from '../../lib/lugeChat'
 import { isDevSimulator } from '../../lib/isDevSimulator'
-import { isRtcVoicePath } from '../../lib/voicePath'
 import { useVolcVoiceSession } from '../../lib/useVolcVoiceSession'
-
-const DEMO_RIVER_QUESTION =
-  '我前面的河是什么河，有什么典故，上下游是哪'
 
 export default function RadarScreen() {
   const deviceMode = !isDevSimulator()
-  const rtcPath = isRtcVoicePath()
   const volc = useVolcVoiceSession()
   const [startError, setStartError] = useState<string | null>(null)
 
   const {
     isActive,
-    speech,
     isThinking,
-    isSpeaking,
     conversationReady,
     startLuge,
     stopLuge,
-    ask,
     say,
     runWhileThinking,
     recordProactiveSpeech,
   } = useLuge()
-  const { coords } = useUserLocation()
+  const { coords, setManualLocation } = useUserLocation()
   const { settings: proactiveSettings, ready: proactiveReady } = useProactiveGuideSettings()
   const proactiveSpan = settingsToSpanConfig(proactiveSettings)
   const { quota, refreshQuota, showExhausted } = useQuota()
-  const [voiceBlocked, setVoiceBlocked] = useState(false)
   const [companionMenuOpen, setCompanionMenuOpen] = useState(false)
   const [micMuted, setMicMuted] = useState(false)
   const [proactiveMapOverlay, setProactiveMapOverlay] = useState<ProactiveMapOverlay>(
@@ -63,41 +61,37 @@ export default function RadarScreen() {
     }),
   )
   const proactiveCandidatesRef = useRef<ProactiveMapMarker[]>([])
+  const [speakFocus, setSpeakFocus] = useState<SpeakFocusPoi | null>(null)
+  const speakFocusClearRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const legacyVoice = !rtcPath
+  const clearSpeakFocusTimer = useCallback(() => {
+    if (speakFocusClearRef.current) {
+      clearTimeout(speakFocusClearRef.current)
+      speakFocusClearRef.current = null
+    }
+  }, [])
 
-  const onVoiceError = useCallback(
-    (msg: string) => {
-      if (__DEV__) console.warn('[voice ui]', msg)
-      setStartError(msg)
+  const activateSpeakFocus = useCallback(
+    (poi: SpeakFocusPoi, textLen: number) => {
+      clearSpeakFocusTimer()
+      setSpeakFocus(poi)
+      // 约 4 字/秒，夹在 12～45s
+      const ms = Math.min(45_000, Math.max(12_000, Math.round((textLen / 4) * 1000)))
+      speakFocusClearRef.current = setTimeout(() => {
+        speakFocusClearRef.current = null
+        setSpeakFocus(null)
+      }, ms)
     },
-    [],
+    [clearSpeakFocusTimer],
   )
 
-  const voice = useVoiceInput(ask, {
-    onError: onVoiceError,
-    onPermissionDenied: () => setVoiceBlocked(true),
-    canListen: () =>
-      legacyVoice && !isThinking && !isSpeaking && !micMuted,
-  })
-
-  const voiceBusy = isThinking || isSpeaking
-
-  useAutoVoiceConversation({
-    enabled: legacyVoice && deviceMode && isActive && voice.available,
-    ready: conversationReady,
-    busy: voiceBusy,
-    blocked: voiceBlocked || micMuted,
-    isListening: voice.isListening,
-    startListening: voice.startListening,
-  })
+  useEffect(() => () => clearSpeakFocusTimer(), [clearSpeakFocusTimer])
 
   useEffect(() => {
-    if (!legacyVoice || !deviceMode || !isActive) return
-    if (voiceBusy && voice.isListening) {
-      voice.abortListening()
-    }
-  }, [legacyVoice, deviceMode, isActive, voiceBusy, voice.isListening, voice.abortListening])
+    if (isActive) return
+    clearSpeakFocusTimer()
+    setSpeakFocus(null)
+  }, [isActive, clearSpeakFocusTimer])
 
   useEffect(() => {
     if (isActive) return
@@ -107,49 +101,43 @@ export default function RadarScreen() {
   }, [isActive])
 
   useEffect(() => {
-    if (!rtcPath || !isActive) return
+    if (!isActive) return
     volc.setMicEnabled(!micMuted)
-  }, [rtcPath, isActive, micMuted, volc.setMicEnabled])
+  }, [isActive, micMuted, volc.setMicEnabled])
 
   const handleStartLuge = useCallback(async () => {
     setStartError(null)
-    if (rtcPath) {
-      if (quota && !quota.can_ask) {
-        showExhausted({
-          code: 'QUOTA_EXHAUSTED',
-          tier: quota.tier,
-          register_bonus: quota.register_bonus,
-        })
-        return
-      }
-      const result = await volc.join()
-      if (!result.ok) {
-        if ('quota' in result) {
-          showExhausted(result.quota)
-          return
-        }
-        setStartError(result.message)
-        return
-      }
-      void refreshQuota()
-      startLuge({ skipGreeting: true })
+    if (quota && !quota.can_ask) {
+      showExhausted({
+        code: 'QUOTA_EXHAUSTED',
+        tier: quota.tier,
+        register_bonus: quota.register_bonus,
+      })
       return
     }
-    startLuge()
-  }, [rtcPath, volc.join, startLuge, quota, showExhausted, refreshQuota])
+    const result = await volc.join()
+    if (!result.ok) {
+      if ('quota' in result) {
+        showExhausted(result.quota)
+        return
+      }
+      setStartError(result.message)
+      return
+    }
+    void refreshQuota()
+    startLuge({ skipGreeting: true })
+  }, [volc.join, startLuge, quota, showExhausted, refreshQuota])
 
   const handleStopLuge = useCallback(() => {
-    voice.abortListening()
-    setVoiceBlocked(false)
     setMicMuted(false)
     setCompanionMenuOpen(false)
-    if (rtcPath && volc.inCall) {
+    if (volc.inCall) {
       void volc.leave().then(() => refreshQuota())
-    } else if (rtcPath) {
+    } else {
       void refreshQuota()
     }
     stopLuge()
-  }, [voice.abortListening, rtcPath, volc.inCall, volc.leave, stopLuge, refreshQuota])
+  }, [volc.inCall, volc.leave, stopLuge, refreshQuota])
 
   const handleAvatarPress = useCallback(() => {
     if (!deviceMode) return
@@ -159,26 +147,48 @@ export default function RadarScreen() {
   const handleToggleMic = useCallback(() => {
     setMicMuted((muted) => {
       const next = !muted
-      if (rtcPath) {
-        volc.setMicEnabled(!next)
-      } else if (next) {
-        voice.abortListening()
-      }
+      volc.setMicEnabled(!next)
       return next
     })
-  }, [rtcPath, volc.setMicEnabled, voice.abortListening])
+  }, [volc.setMicEnabled])
 
   const handleProactiveSpeak = useCallback(
-    async (text: string, accessToken: string | null) => {
-      if (rtcPath && volc.inCall) {
-        const ok = await volc.speakExternal(text)
+    async (
+      text: string,
+      accessToken: string | null,
+      meta?: {
+        topicPoi?: string | null
+        lat?: number | null
+        lng?: number | null
+      },
+    ) => {
+      if (
+        meta?.lat != null &&
+        meta?.lng != null &&
+        Number.isFinite(meta.lat) &&
+        Number.isFinite(meta.lng)
+      ) {
+        activateSpeakFocus(
+          {
+            lat: meta.lat,
+            lng: meta.lng,
+            name: (meta.topicPoi?.trim() || '正在讲解').slice(0, 40),
+            at: Date.now(),
+          },
+          text.trim().length,
+        )
+      }
+      if (volc.inCall) {
+        const ok = await volc.speakExternal(text, {
+          topicPoi: meta?.topicPoi,
+        })
         if (ok) recordProactiveSpeech(text)
         else await say(text, accessToken, { recordProactive: true })
         return
       }
       await say(text, accessToken, { recordProactive: true })
     },
-    [rtcPath, volc.inCall, volc.speakExternal, say, recordProactiveSpeech],
+    [volc.inCall, volc.speakExternal, say, recordProactiveSpeech, activateSpeakFocus],
   )
 
   const handleProactiveDevOverlay = useCallback((patch: ProactiveDevOverlay) => {
@@ -186,6 +196,33 @@ export default function RadarScreen() {
     setProactiveMapOverlay((prev) =>
       mergeProactiveDevOverlay(prev, patch, proactiveCandidatesRef.current),
     )
+  }, [])
+
+  const syncYellowDotsFromLibrary = useCallback(() => {
+    if (!__DEV__) return
+    const lib = peekScenicLibrary()
+    if (!lib?.pois?.length) return
+    const cands: ProactiveMapMarker[] = lib.pois.slice(0, 60).map((c, i) => ({
+      id: `cand-${c.amap_poi_id ?? i}-${c.name.slice(0, 8)}`,
+      lat: c.lat,
+      lng: c.lng,
+      name: c.name,
+      kind: 'candidate' as const,
+      type: c.type,
+    }))
+    proactiveCandidatesRef.current = cands
+    setProactiveMapOverlay((prev) => {
+      const events = prev.markers.filter(
+        (m) =>
+          m.kind === 'anchor' ||
+          m.kind === 'last_spoken' ||
+          m.kind === 'last_skipped',
+      )
+      return {
+        ...prev,
+        markers: [...cands, ...events],
+      }
+    })
   }, [])
 
   useEffect(() => {
@@ -207,15 +244,16 @@ export default function RadarScreen() {
         const session = await loadSession()
         const data = await fetchProactivePreviewPois(coords, {
           accessToken: session?.access_token,
-          scenicRadiusKm: proactiveSettings.scenicRadiusKm,
+          scenicRadiusKm: scenicLibraryRadiusKm(proactiveSettings),
         })
         if (cancelled) return
         const cands: ProactiveMapMarker[] = data.candidates.map((c, i) => ({
-          id: `cand-${i}-${c.name.slice(0, 8)}`,
+          id: `cand-${c.amap_poi_id ?? i}-${c.name.slice(0, 8)}`,
           lat: c.lat,
           lng: c.lng,
           name: c.name,
           kind: 'candidate' as const,
+          type: c.type,
         }))
         if (
           data.forward_map_hit?.lat != null &&
@@ -259,6 +297,9 @@ export default function RadarScreen() {
     isActive,
     proactiveSettings.enabled,
     proactiveSettings.scenicRadiusKm,
+    proactiveSettings.geoRadius.baseUrbanKm,
+    proactiveSettings.geoRadius.baseTownKm,
+    proactiveSettings.geoRadius.baseWildKm,
   ])
 
   const handleProactiveQuotaExhausted = useCallback(
@@ -268,27 +309,102 @@ export default function RadarScreen() {
     [showExhausted],
   )
 
-  useProactiveGuide({
+  const {
+    forceTrigger: forceProactiveGuide,
+    forceSpeakPoi,
+    gateHint: proactiveGateHint,
+  } = useProactiveGuide({
     enabled:
       (deviceMode || __DEV__) &&
       isActive &&
       conversationReady &&
       proactiveReady &&
       proactiveSettings.enabled &&
-      (legacyVoice || (rtcPath && volc.inCall)),
+      volc.inCall,
     coords,
     settings: proactiveSettings,
-    busy:
-      isThinking ||
-      (legacyVoice && (voiceBusy || voice.isListening)),
+    busy: isThinking,
     runWhileThinking,
     onSpeak: handleProactiveSpeak,
     onQuotaRefresh: refreshQuota,
     onQuotaExhausted: handleProactiveQuotaExhausted,
     onDevOverlay: __DEV__ ? handleProactiveDevOverlay : undefined,
+    onScenicLibraryUpdated: __DEV__ ? syncYellowDotsFromLibrary : undefined,
   })
 
-  const rtcLive = rtcPath && isActive && volc.inCall
+  const [forceProactiveBusy, setForceProactiveBusy] = useState(false)
+  const [selectedDevPoi, setSelectedDevPoi] = useState<ProactiveMapMarker | null>(
+    null,
+  )
+
+  const handleForceProactive = useCallback(() => {
+    if (!__DEV__ || forceProactiveBusy) return
+    setForceProactiveBusy(true)
+    void forceProactiveGuide()
+      .then((r) => {
+        if (!r.ok) {
+          Alert.alert('没法触发', r.reason)
+          return
+        }
+        if (!r.spoken) {
+          Alert.alert('跑完了但没开口', r.skipReason ?? '模型跳过')
+        }
+      })
+      .finally(() => setForceProactiveBusy(false))
+  }, [forceProactiveBusy, forceProactiveGuide])
+
+  const handleDevCandidatePress = useCallback((m: ProactiveMapMarker) => {
+    if (!__DEV__) return
+    if (m.kind !== 'candidate' && m.kind !== 'forward_hit') return
+    setSelectedDevPoi(m)
+  }, [])
+
+  const handleDevLongPressMap = useCallback(
+    (lat: number, lng: number) => {
+      if (!__DEV__) return
+      setSelectedDevPoi(null)
+      clearScenicLibrary()
+      void setManualLocation({
+        latitude: lat,
+        longitude: lng,
+        heading: coords?.heading ?? 0,
+        label: '地图长按',
+      }).then(() => {
+        if (__DEV__) {
+          console.log('[dev map] 测试位置', lat.toFixed(5), lng.toFixed(5))
+        }
+      })
+    },
+    [coords?.heading, setManualLocation],
+  )
+
+  const handleSpeakSelectedDevPoi = useCallback(() => {
+    if (!__DEV__ || forceProactiveBusy || !selectedDevPoi) return
+    const m = selectedDevPoi
+    setForceProactiveBusy(true)
+    void forceSpeakPoi({
+      name: m.name,
+      lat: m.lat,
+      lng: m.lng,
+      type: m.type,
+    })
+      .then((r) => {
+        if (!r.ok) {
+          Alert.alert('没法讲解', r.reason)
+          return
+        }
+        if (!r.spoken) {
+          Alert.alert('跑完了但没开口', r.skipReason ?? '模型跳过')
+        }
+      })
+      .finally(() => setForceProactiveBusy(false))
+  }, [forceProactiveBusy, forceSpeakPoi, selectedDevPoi])
+
+  useEffect(() => {
+    if (!isActive || !proactiveSettings.enabled) setSelectedDevPoi(null)
+  }, [isActive, proactiveSettings.enabled])
+
+  const rtcLive = isActive && volc.inCall
 
   useEffect(() => {
     if (!rtcLive) return
@@ -298,19 +414,86 @@ export default function RadarScreen() {
     return () => clearInterval(timer)
   }, [rtcLive, refreshQuota])
 
-  const companionSpeaking = rtcLive ? true : isSpeaking
-  const companionThinking = rtcPath && isActive ? volc.busy && !volc.inCall : isThinking
+  const companionSpeaking = rtcLive
+  const companionThinking = isActive ? volc.busy && !volc.inCall : false
 
   return (
     <View style={styles.root}>
-      <RadarMap proactiveOverlay={__DEV__ ? proactiveMapOverlay : null} />
-      {isDevSimulator() ? <DevLocationPanel /> : null}
+      <RadarMap
+        proactiveOverlay={__DEV__ ? proactiveMapOverlay : null}
+        speakFocus={speakFocus}
+        onDevCandidatePress={__DEV__ ? handleDevCandidatePress : undefined}
+        onDevLongPressMap={__DEV__ ? handleDevLongPressMap : undefined}
+      />
+      {__DEV__ ? <DevLocationPanel /> : null}
 
       {__DEV__ && isActive && proactiveSettings.enabled ? (
         <View style={styles.devProactiveLegend}>
+          {selectedDevPoi ? (
+            <View style={styles.devPoiCard}>
+              <Pressable
+                style={[
+                  styles.devSpeakBtn,
+                  forceProactiveBusy ? styles.devForceBtnDisabled : null,
+                ]}
+                disabled={forceProactiveBusy}
+                onPress={handleSpeakSelectedDevPoi}
+              >
+                <Text style={styles.devSpeakBtnText}>
+                  {forceProactiveBusy ? '讲解中…' : '讲解'}
+                </Text>
+              </Pressable>
+              <Text style={styles.devPoiName} numberOfLines={2}>
+                {selectedDevPoi.name}
+              </Text>
+              <Text style={styles.devPoiType} numberOfLines={2}>
+                {selectedDevPoi.type?.trim() || '（无 type）'}
+              </Text>
+              <Pressable
+                hitSlop={10}
+                onPress={() => setSelectedDevPoi(null)}
+                style={styles.devPoiDismiss}
+              >
+                <Text style={styles.devPoiDismissText}>关闭</Text>
+              </Pressable>
+            </View>
+          ) : null}
           <Text style={styles.devProactiveLegendText}>
-            主动讲解 Dev · 黄=候选景点 · 紫=当前前方 POI · 蓝圈=位移门槛 · 绿/灰=上次开口/跳过
+            {(() => {
+              const libKm = scenicLibraryRadiusKm(proactiveSettings)
+              const needKm = proactiveSettings.minDistanceKm
+              const anchor = proactiveMapOverlay.anchor
+              let gate = `门槛 ${needKm}km / ${proactiveSettings.minCheckIntervalMin}分`
+              if (coords && anchor) {
+                const moved = haversineKm(
+                  anchor.lat,
+                  anchor.lng,
+                  coords.latitude,
+                  coords.longitude,
+                )
+                const remain = Math.max(0, needKm - moved)
+                gate =
+                  remain < 0.05
+                    ? `已够位移（${moved.toFixed(1)}/${needKm}km），等时间门槛或下一轮`
+                    : `还差约 ${remain.toFixed(1)}km 才查主动讲（已走 ${moved.toFixed(1)}/${needKm}）`
+              }
+              return `黄点库≈${libKm}km · ${gate}`
+            })()}
+            {proactiveGateHint ? `\n${proactiveGateHint}` : ''}
+            {forceProactiveBusy ? ' · 请求中…' : ''}
           </Text>
+          <Pressable
+            style={[
+              styles.devForceBtn,
+              forceProactiveBusy ? styles.devForceBtnDisabled : null,
+            ]}
+            disabled={forceProactiveBusy}
+            onPress={handleForceProactive}
+          >
+            <Text style={styles.devForceBtnText}>
+              {forceProactiveBusy ? '正在触发…' : '立刻主动讲解'}
+            </Text>
+          </Pressable>
         </View>
       ) : null}
 
@@ -335,28 +518,18 @@ export default function RadarScreen() {
           )}
         </View>
       ) : (
-        <>
-          <DevAskBar
-            onSubmit={(t) => ask(t)}
-            disabled={isThinking || voice.isListening || rtcPath}
-          />
-          <LugeCompanion
-            deviceMode={deviceMode}
-            speech={rtcPath ? null : speech}
-            thinking={companionThinking}
-            listening={legacyVoice && voice.isListening && !micMuted}
-            speaking={companionSpeaking}
-            micMuted={micMuted}
-            menuOpen={companionMenuOpen}
-            onToggleMic={handleToggleMic}
-            onPress={
-              deviceMode
-                ? handleAvatarPress
-                : () => ask(DEMO_RIVER_QUESTION)
-            }
-            onLongPress={handleStopLuge}
-          />
-        </>
+        <LugeCompanion
+          deviceMode={deviceMode}
+          speech={null}
+          thinking={companionThinking}
+          listening={false}
+          speaking={companionSpeaking}
+          micMuted={micMuted}
+          menuOpen={companionMenuOpen}
+          onToggleMic={handleToggleMic}
+          onPress={handleAvatarPress}
+          onLongPress={handleStopLuge}
+        />
       )}
     </View>
   )
@@ -413,10 +586,64 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 10,
     zIndex: 15,
+    gap: 8,
   },
   devProactiveLegendText: {
     color: '#cbd5e1',
     fontSize: 10,
     lineHeight: 14,
+  },
+  devForceBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  devForceBtnDisabled: {
+    opacity: 0.55,
+  },
+  devForceBtnText: {
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  devPoiCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.95)',
+    borderRadius: 10,
+    padding: 10,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.35)',
+  },
+  devSpeakBtn: {
+    alignSelf: 'stretch',
+    backgroundColor: '#4ade80',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  devSpeakBtnText: {
+    color: '#0f172a',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  devPoiName: {
+    color: '#f8fafc',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  devPoiType: {
+    color: '#94a3b8',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  devPoiDismiss: {
+    alignSelf: 'flex-end',
+    paddingVertical: 2,
+  },
+  devPoiDismissText: {
+    color: '#64748b',
+    fontSize: 12,
   },
 })

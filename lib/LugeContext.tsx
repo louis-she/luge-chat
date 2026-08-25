@@ -11,12 +11,6 @@ import { loadSession } from './auth'
 import { bubbleVisibleMs } from './bubbleTiming'
 import { createChatWindow } from './chatWindow'
 import { isDevSimulator } from './isDevSimulator'
-import { readUserCoords } from './location'
-import { useQuota } from './QuotaContext'
-import {
-  askLugeGuide,
-  LugeChatQuotaError,
-} from './lugeChat'
 import { speakVolcano, stopVolcanoSpeech } from './volcanoTts'
 
 type SayOptions = {
@@ -33,30 +27,12 @@ type LugeContextValue = {
   startLuge: (opts?: { skipGreeting?: boolean }) => void
   stopLuge: () => void
   say: (text: string, accessToken?: string | null, options?: SayOptions) => Promise<void>
-  ask: (message: string) => Promise<void>
-  runWhileThinking: (fn: () => Promise<void>) => Promise<void>
+  runWhileThinking: (fn: () => Promise<void>) => Promise<boolean>
   /** 主动讲解文案写入近期对话（RTC ExternalTTS 不走 say 时用） */
   recordProactiveSpeech: (text: string) => void
 }
 
 const LugeContext = createContext<LugeContextValue | null>(null)
-
-const GREETING = '路鸽已启动'
-
-function toUserFacingAskError(error: unknown) {
-  const msg = error instanceof Error ? error.message : ''
-
-  if (msg.includes('需要定位权限')) return '需要定位权限，我才能结合你的位置回答'
-  if (msg.includes('无法获取当前位置')) return '我暂时拿不到当前位置，请稍后再试'
-  if (msg.includes('没听清')) return '我刚刚没听清，请再说一次'
-  if (msg.includes('调试流') || msg.includes('deepseek') || msg.includes('TTS')) {
-    return '我刚刚开了个小差，请再问我一次'
-  }
-  if (/[\\/:[\]{}]/.test(msg) || /https?:\/\//i.test(msg) || /\b(exception|error|failed|timeout)\b/i.test(msg)) {
-    return '我刚刚出了点小问题，请再问我一次'
-  }
-  return '我暂时没法回答这个问题，请稍后再试'
-}
 
 export function LugeProvider({ children }: { children: ReactNode }) {
   const [isActive, setIsActive] = useState(false)
@@ -64,7 +40,6 @@ export function LugeProvider({ children }: { children: ReactNode }) {
   const [isThinking, setIsThinking] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [conversationReady, setConversationReady] = useState(false)
-  const { refreshQuota, showExhausted } = useQuota()
   const greetingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -110,11 +85,12 @@ export function LugeProvider({ children }: { children: ReactNode }) {
     [],
   )
 
-  const runWhileThinking = useCallback(async (fn: () => Promise<void>) => {
-    if (isThinking || sayBusyRef.current) return
+  const runWhileThinking = useCallback(async (fn: () => Promise<void>): Promise<boolean> => {
+    if (isThinking || sayBusyRef.current) return false
     setIsThinking(true)
     try {
       await fn()
+      return true
     } finally {
       setIsThinking(false)
     }
@@ -125,74 +101,13 @@ export function LugeProvider({ children }: { children: ReactNode }) {
     if (t) chatWindowRef.current.appendProactive(t)
   }, [])
 
-  const ask = useCallback(
-    async (message: string) => {
-      if (!message.trim() || isThinking || sayBusyRef.current) return
-      const userText = message.trim()
-      setIsThinking(true)
-      setSpeech(isDevSimulator() ? '稍等，我看看周围…' : null)
-      await stopVolcanoSpeech()
-
-      try {
-        const coords = await readUserCoords()
-        const session = await loadSession()
-        sessionRef.current = session?.access_token ?? null
-        const recentMessages = chatWindowRef.current.snapshot()
-        if (__DEV__) {
-          console.log(
-            '[luge] 发起提问…',
-            recentMessages.length > 0 ? `近期 ${recentMessages.length} 条` : '',
-          )
-        }
-        const result = await askLugeGuide(
-          userText,
-          coords,
-          sessionRef.current,
-          recentMessages,
-        )
-        if (result.ignored) {
-          if (__DEV__) {
-            console.log('[luge] 已忽略输入', result.ignore_reason ?? '')
-          }
-          setIsThinking(false)
-          return
-        }
-        if (__DEV__) console.log('[luge] 回答就绪，开始合成语音…')
-        setIsThinking(false)
-        await say(result.answer, sessionRef.current)
-        if (result.answer.trim()) {
-          chatWindowRef.current.appendRound(userText, result.answer.trim())
-        }
-        if (result.quota) void refreshQuota()
-      } catch (e) {
-        if (e instanceof LugeChatQuotaError) {
-          showExhausted(e.payload)
-          setSpeech(null)
-          return
-        }
-        console.warn('[luge ask]', e)
-        setIsThinking(false)
-        await say(toUserFacingAskError(e), sessionRef.current)
-      } finally {
-        setIsThinking(false)
-      }
-    },
-    [isThinking, say, refreshQuota, showExhausted],
-  )
-
-  const startLuge = useCallback((opts?: { skipGreeting?: boolean }) => {
+  const startLuge = useCallback((_opts?: { skipGreeting?: boolean }) => {
     chatWindowRef.current.clear()
     setIsActive(true)
     setSpeech(null)
-    setConversationReady(false)
-    if (opts?.skipGreeting) {
-      setConversationReady(true)
-      return
-    }
-    greetingTimer.current = setTimeout(() => {
-      void say(GREETING).finally(() => setConversationReady(true))
-    }, 600)
-  }, [say])
+    // RTC 欢迎语由火山 WelcomeMessage 播；本地立即进入可主动讲解状态
+    setConversationReady(true)
+  }, [])
 
   const stopLuge = useCallback(() => {
     if (greetingTimer.current) clearTimeout(greetingTimer.current)
@@ -216,7 +131,6 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       startLuge,
       stopLuge,
       say,
-      ask,
       runWhileThinking,
       recordProactiveSpeech,
     }),
@@ -229,7 +143,6 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       startLuge,
       stopLuge,
       say,
-      ask,
       runWhileThinking,
       recordProactiveSpeech,
     ],

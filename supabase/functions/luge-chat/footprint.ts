@@ -61,6 +61,7 @@ const CLASSIFIER_PROMPT = `你是路鸽足迹系统的调度员。根据用户�
 - **路鸽主动讲解本身不生成足迹**；仅当用户在本轮**主动提问**，且与「刚才主动讲解的 POI」明确相关时，才可对该 POI match/create
 - 若提供了「刚才主动讲解的 POI」但用户问的是别的地标，可忽略该上下文，按常规定义判断即可
 - 追问同一对象（如雕像后问诗人）→ match 同一足迹，不要 create
+- **候选列表里已有同名（或专名核心相同）的足迹 → 必须 match，禁止再 create**
 - 山、河、城镇等为不同 POI：例如「折多山」（mountain）与「折多河」（river）应分别建档；用户本轮主要问山体/海拔/垭口/分界 → mountain，主要问河流/水源/上下游 → river；不要因为二者相关就 match 到另一个类型的足迹
 - create 时坐标用地标本身位置，不要用用户 GPS 代替河流/城镇中心
 - create 时 poi_name 填用户关心的地理实体正式名称（公园、河流、景区等），不要填楼盘、小区、商铺名
@@ -121,6 +122,58 @@ export async function fetchNearbyFootprints(
     return []
   }
   return (data ?? []) as NearbyFootprint[]
+}
+
+/** 公园/寺等泛类词：不能单靠这些把旧足迹和当前 POI 串起来（勿剥「江/河/山」等专名常用字） */
+const FOOTPRINT_GENERIC_SUFFIX =
+  /(国家森林公园|森林公园|地质公园|湿地公园|风景名胜区|旅游度假区|旅游区|风景区|度假区|博物馆|纪念馆|文化馆|水库|公园|景区|寺庙|道观|教堂|古镇|古城|大桥|隧道|立交桥|立交)$/u
+const FOOTPRINT_GENERIC_INFIX = /公园|景区|寺庙|风景区|度假区/g
+
+/**
+ * 专名核心：去掉括号与泛类后缀后剩余的可辨识片段。
+ * 「成都北湖公园」→「成都北湖」；「岷江」保持「岷江」。
+ */
+export function footprintProperCore(name: string): string {
+  return name
+    .replace(/[（(].*?[）)]/g, '')
+    .replace(FOOTPRINT_GENERIC_SUFFIX, '')
+    .replace(FOOTPRINT_GENERIC_INFIX, '')
+    .replace(/[\s·\-_/／]+/g, '')
+    .trim()
+}
+
+/**
+ * 足迹是否与候选地名「专名相关」（同河/同景区核心名），而非仅共有「公园」等类词。
+ * 用于主动讲解：无关足迹不塞进 prompt，从源头减少乱 cue。
+ */
+export function footprintRelatedToNames(
+  footprint: { poi_name: string; title?: string | null },
+  candidateNames: string[],
+): boolean {
+  const cores = [footprint.poi_name, footprint.title ?? '']
+    .map((s) => footprintProperCore(String(s ?? '')))
+    .filter((c) => c.length >= 2)
+  if (!cores.length) return false
+
+  for (const cand of candidateNames) {
+    const cc = footprintProperCore(cand)
+    if (cc.length < 2) continue
+    for (const core of cores) {
+      if (core.includes(cc) || cc.includes(core)) return true
+    }
+  }
+  return false
+}
+
+/** 只保留与当前候选专名相关的附近足迹（最多 limit 条） */
+export function filterFootprintsForCue(
+  footprints: NearbyFootprint[],
+  candidateNames: string[],
+  limit = 5,
+): NearbyFootprint[] {
+  return footprints
+    .filter((fp) => footprintRelatedToNames(fp, candidateNames))
+    .slice(0, limit)
 }
 
 function formatCandidates(candidates: NearbyFootprint[]) {
@@ -329,6 +382,56 @@ function pointWkt(lng: number, lat: number) {
   return `SRID=4326;POINT(${lng} ${lat})`
 }
 
+function normalizePoiNameKey(name: string) {
+  return name.trim().toLowerCase().replace(/\s+/g, '')
+}
+
+/** 同用户、同名足迹已存在则复用（防并发 create / 分类器误 create） */
+async function findExistingFootprintByName(
+  supabase: SupabaseClient,
+  userId: string,
+  poiName: string,
+): Promise<{ id: string; poi_name: string } | null> {
+  const want = normalizePoiNameKey(poiName)
+  if (!want) return null
+  const { data } = await supabase
+    .from('user_footprints')
+    .select('id, poi_name')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(80)
+  if (!data?.length) return null
+  const hit = data.find(
+    (r) => normalizePoiNameKey(String(r.poi_name ?? '')) === want,
+  )
+  return hit ? { id: hit.id, poi_name: String(hit.poi_name) } : null
+}
+
+/** 同用户串行化足迹写入，避免同秒多轮同时 create */
+const footprintWriteTail = new Map<string, Promise<unknown>>()
+
+async function withFootprintWriteLock<T>(
+  userId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prev = footprintWriteTail.get(userId) ?? Promise.resolve()
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const tail = prev.then(() => gate)
+  footprintWriteTail.set(userId, tail)
+  await prev.catch(() => undefined)
+  try {
+    return await fn()
+  } finally {
+    release()
+    if (footprintWriteTail.get(userId) === tail) {
+      footprintWriteTail.delete(userId)
+    }
+  }
+}
+
 async function findReusableVisit(supabase: SupabaseClient, footprintId: string) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const { data } = await supabase
@@ -363,97 +466,376 @@ export async function applyFootprintDecision(
     return { footprint_id: null, visit_id: null, write_error: null }
   }
 
-  let footprintId: string
+  return withFootprintWriteLock(userId, async () => {
+    let footprintId: string
 
-  if (decision.action === 'create') {
-    const { data, error } = await supabase
-      .from('user_footprints')
-      .insert({
-        user_id: userId,
-        poi_name: decision.poi_name,
-        poi_type: decision.poi_type,
-        geom: pointWkt(decision.longitude, decision.latitude),
-        title: decision.poi_name,
-      })
-      .select('id')
-      .single()
-    if (error || !data) {
-      console.warn('create footprint:', error?.message)
+    if (decision.action === 'create') {
+      const existing = await findExistingFootprintByName(
+        supabase,
+        userId,
+        decision.poi_name,
+      )
+      if (existing) {
+        footprintId = existing.id
+      } else {
+        const { data, error } = await supabase
+          .from('user_footprints')
+          .insert({
+            user_id: userId,
+            poi_name: decision.poi_name,
+            poi_type: decision.poi_type,
+            geom: pointWkt(decision.longitude, decision.latitude),
+            title: decision.poi_name,
+          })
+          .select('id')
+          .single()
+        if (error || !data) {
+          const raced = await findExistingFootprintByName(
+            supabase,
+            userId,
+            decision.poi_name,
+          )
+          if (raced) {
+            footprintId = raced.id
+          } else {
+            console.warn('create footprint:', error?.message)
+            return {
+              footprint_id: null,
+              visit_id: null,
+              write_error: error?.message ?? 'create footprint failed',
+            }
+          }
+        } else {
+          footprintId = data.id
+        }
+      }
+    } else {
+      footprintId = decision.footprint_id
+    }
+
+    let visitId: string
+    const existingVisit = await findReusableVisit(supabase, footprintId)
+
+    if (existingVisit) {
+      visitId = existingVisit.id
+      await supabase
+        .from('footprint_visits')
+        .update({
+          last_active_at: new Date().toISOString(),
+          needs_summary: true,
+        })
+        .eq('id', visitId)
+    } else {
+      const { data, error } = await supabase
+        .from('footprint_visits')
+        .insert({
+          footprint_id: footprintId,
+          status: 'active',
+          start_location: pointWkt(params.userLng, params.userLat),
+          needs_summary: true,
+        })
+        .select('id')
+        .single()
+      if (error || !data) {
+        console.warn('create visit:', error?.message)
+        return {
+          footprint_id: footprintId,
+          visit_id: null,
+          write_error: error?.message ?? 'create visit failed',
+        }
+      }
+      visitId = data.id
+    }
+
+    const rows = [
+      {
+        footprint_visit_id: visitId,
+        role: 'user',
+        content: params.userMessage,
+        triggered_location: pointWkt(params.userLng, params.userLat),
+        heading_degrees: params.heading,
+      },
+      {
+        footprint_visit_id: visitId,
+        role: 'assistant',
+        content: params.assistantMessage,
+      },
+    ]
+
+    const { error: msgErr } = await supabase.from('footprint_messages').insert(rows)
+    if (msgErr) {
       return {
-        footprint_id: null,
-        visit_id: null,
-        write_error: error?.message ?? 'create footprint failed',
+        footprint_id: footprintId,
+        visit_id: visitId,
+        write_error: msgErr.message,
       }
     }
-    footprintId = data.id
-  } else {
-    footprintId = decision.footprint_id
-  }
 
-  let visitId: string
-  const existing = await findReusableVisit(supabase, footprintId)
-
-  if (existing) {
-    visitId = existing.id
     await supabase
-      .from('footprint_visits')
-      .update({
-        last_active_at: new Date().toISOString(),
-        needs_summary: true,
-      })
-      .eq('id', visitId)
-  } else {
-    const { data, error } = await supabase
-      .from('footprint_visits')
-      .insert({
-        footprint_id: footprintId,
-        status: 'active',
-        start_location: pointWkt(params.userLng, params.userLat),
-        needs_summary: true,
-      })
-      .select('id')
-      .single()
-    if (error || !data) {
-      console.warn('create visit:', error?.message)
-      return {
-        footprint_id: footprintId,
-        visit_id: null,
-        write_error: error?.message ?? 'create visit failed',
-      }
-    }
-    visitId = data.id
-  }
+      .from('user_footprints')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', footprintId)
 
-  const rows = [
-    {
-      footprint_visit_id: visitId,
-      role: 'user',
-      content: params.userMessage,
-      triggered_location: pointWkt(params.userLng, params.userLat),
-      heading_degrees: params.heading,
-    },
-    {
-      footprint_visit_id: visitId,
-      role: 'assistant',
-      content: params.assistantMessage,
-    },
-  ]
+    return { footprint_id: footprintId, visit_id: visitId, write_error: null }
+  })
+}
 
-  const { error: msgErr } = await supabase.from('footprint_messages').insert(rows)
-  if (msgErr) {
+export type FavoriteFootprintResult = {
+  ok: boolean
+  status:
+    | 'created_and_favorited'
+    | 'favorited'
+    | 'already_favorited'
+    | 'need_login'
+    | 'need_topic'
+    | 'error'
+  footprint_id: string | null
+  poi_name: string
+  already_favorited: boolean
+  created: boolean
+  error?: string
+  reply_hint: string
+}
+
+/** 语音「收藏 / 记住这个点」：匹配或新建足迹，并点亮 favorited_at */
+export async function ensureFootprintFavorited(
+  supabase: SupabaseClient,
+  userId: string | null | undefined,
+  opts: {
+    poiName: string
+    poiType?: FootprintPoiType
+    latitude: number
+    longitude: number
+    userLat: number
+    userLng: number
+    heading?: number | null
+    userMessage?: string
+  },
+): Promise<FavoriteFootprintResult> {
+  const poiName = opts.poiName.trim().slice(0, 80)
+  if (!userId) {
     return {
-      footprint_id: footprintId,
-      visit_id: visitId,
-      write_error: msgErr.message,
+      ok: false,
+      status: 'need_login',
+      footprint_id: null,
+      poi_name: poiName,
+      already_favorited: false,
+      created: false,
+      reply_hint:
+        '用户未登录。请用一两句提醒：登录后才能收藏地点；不要假装已经收藏成功。',
+    }
+  }
+  if (!poiName) {
+    return {
+      ok: false,
+      status: 'need_topic',
+      footprint_id: null,
+      poi_name: '',
+      already_favorited: false,
+      created: false,
+      reply_hint:
+        '当前没有可收藏的话题景点。请用一两句问用户想收藏哪个地方，不要假装已收藏。',
     }
   }
 
-  await supabase
-    .from('user_footprints')
-    .update({ updated_at: new Date().toISOString() })
-    .eq('id', footprintId)
+  const poiType: FootprintPoiType =
+    opts.poiType && POI_TYPES.includes(opts.poiType) ? opts.poiType : 'other'
 
-  return { footprint_id: footprintId, visit_id: visitId, write_error: null }
+  try {
+    return await withFootprintWriteLock(userId, async () => {
+      const existing = await findExistingFootprintByName(supabase, userId, poiName)
+      let footprintId: string
+      let created = false
+      let alreadyFavorited = false
+
+      if (existing) {
+        footprintId = existing.id
+        const { data: row } = await supabase
+          .from('user_footprints')
+          .select('favorited_at, poi_name')
+          .eq('id', footprintId)
+          .maybeSingle()
+        alreadyFavorited = row?.favorited_at != null
+      } else {
+        const { data, error } = await supabase
+          .from('user_footprints')
+          .insert({
+            user_id: userId,
+            poi_name: poiName,
+            poi_type: poiType,
+            geom: pointWkt(opts.longitude, opts.latitude),
+            title: poiName,
+          })
+          .select('id')
+          .single()
+        if (error || !data) {
+          const raced = await findExistingFootprintByName(supabase, userId, poiName)
+          if (!raced) {
+            return {
+              ok: false,
+              status: 'error',
+              footprint_id: null,
+              poi_name: poiName,
+              already_favorited: false,
+              created: false,
+              error: error?.message ?? 'create failed',
+              reply_hint: '收藏失败了，请让用户稍后再试，不要编造已收藏。',
+            }
+          }
+          footprintId = raced.id
+        } else {
+          footprintId = data.id
+          created = true
+        }
+      }
+
+      if (!alreadyFavorited) {
+        const favoritedAt = new Date().toISOString()
+        const { error: favErr } = await supabase
+          .from('user_footprints')
+          .update({
+            favorited_at: favoritedAt,
+            updated_at: favoritedAt,
+          })
+          .eq('id', footprintId)
+          .eq('user_id', userId)
+        if (favErr) {
+          return {
+            ok: false,
+            status: 'error',
+            footprint_id: footprintId,
+            poi_name: poiName,
+            already_favorited: false,
+            created,
+            error: favErr.message,
+            reply_hint: '收藏失败了，请让用户稍后再试，不要编造已收藏。',
+          }
+        }
+
+        try {
+          const { error: sigErr } = await supabase.rpc('record_geo_landmark_signal', {
+            p_user_id: userId,
+            p_signal_type: 'favorite',
+            p_landmark_name: poiName,
+            p_landmark_type: (() => {
+              if (poiType === 'city' || poiType === 'town') return 'town'
+              if (
+                poiType === 'river' ||
+                poiType === 'scenery' ||
+                poiType === 'bridge' ||
+                poiType === 'mountain'
+              ) {
+                return poiType
+              }
+              return 'other'
+            })(),
+            p_lat: opts.latitude,
+            p_lng: opts.longitude,
+            p_ai_story: '',
+            p_amap_poi_id: null,
+            p_metadata: {
+              footprint_id: footprintId,
+              source: 'voice_favorite',
+            },
+          })
+          if (sigErr) {
+            console.warn('record_geo_landmark_signal favorite:', sigErr.message)
+          }
+        } catch (e) {
+          console.warn(
+            'record_geo_landmark_signal favorite:',
+            e instanceof Error ? e.message : e,
+          )
+        }
+      }
+
+      // 轻量记一条访问消息（不嵌套 applyFootprintDecision，避免同用户写锁死锁）
+      const note = (opts.userMessage?.trim() || '用户语音请求收藏此点').slice(0, 200)
+      const assistantNote = alreadyFavorited
+        ? `已收藏过「${poiName}」。`
+        : `已收藏「${poiName}」。`
+      try {
+        let visitId: string | null = null
+        const existingVisit = await findReusableVisit(supabase, footprintId)
+        if (existingVisit) {
+          visitId = existingVisit.id
+          await supabase
+            .from('footprint_visits')
+            .update({
+              last_active_at: new Date().toISOString(),
+              needs_summary: true,
+            })
+            .eq('id', visitId)
+        } else {
+          const { data: visit } = await supabase
+            .from('footprint_visits')
+            .insert({
+              footprint_id: footprintId,
+              status: 'active',
+              start_location: pointWkt(opts.userLng, opts.userLat),
+              needs_summary: true,
+            })
+            .select('id')
+            .single()
+          visitId = visit?.id ?? null
+        }
+        if (visitId) {
+          await supabase.from('footprint_messages').insert([
+            {
+              footprint_visit_id: visitId,
+              role: 'user',
+              content: note,
+              triggered_location: pointWkt(opts.userLng, opts.userLat),
+              heading_degrees: opts.heading ?? null,
+            },
+            {
+              footprint_visit_id: visitId,
+              role: 'assistant',
+              content: assistantNote,
+            },
+          ])
+        }
+      } catch (e) {
+        console.warn(
+          'favorite visit write:',
+          e instanceof Error ? e.message : e,
+        )
+      }
+
+      if (alreadyFavorited) {
+        return {
+          ok: true,
+          status: 'already_favorited',
+          footprint_id: footprintId,
+          poi_name: poiName,
+          already_favorited: true,
+          created: false,
+          reply_hint: `「${poiName}」已经在收藏里了。用一两句短话确认即可，不要再介绍景点。`,
+        }
+      }
+      return {
+        ok: true,
+        status: created ? 'created_and_favorited' : 'favorited',
+        footprint_id: footprintId,
+        poi_name: poiName,
+        already_favorited: false,
+        created,
+        reply_hint: `已收藏「${poiName}」。用一两句短话确认即可，不要展开介绍，也不要复述方位距离。`,
+      }
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return {
+      ok: false,
+      status: 'error',
+      footprint_id: null,
+      poi_name: poiName,
+      already_favorited: false,
+      created: false,
+      error: msg,
+      reply_hint: '收藏失败了，请让用户稍后再试，不要编造已收藏。',
+    }
+  }
 }
 
 export async function loadFootprintMemory(
