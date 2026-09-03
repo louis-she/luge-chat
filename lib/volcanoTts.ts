@@ -12,6 +12,15 @@ let fsModule: ExpoFs | null | undefined
 let currentPlayer: AudioPlayer | null = null
 let warnedNoAudio = false
 let speakGeneration = 0
+let currentFetchController: AbortController | null = null
+
+export type TtsPhase = 'preparing' | 'playing'
+
+class TtsCancelledError extends Error {
+  constructor() {
+    super('tts cancelled')
+  }
+}
 
 function loadAudio(): ExpoAudio | null {
   if (audioModule !== undefined) return audioModule
@@ -52,6 +61,8 @@ async function ensurePlaybackAudioMode() {
 
 export async function stopVolcanoSpeech() {
   speakGeneration += 1
+  currentFetchController?.abort()
+  currentFetchController = null
   Speech.stop()
   if (!currentPlayer) return
   try {
@@ -97,37 +108,55 @@ export function splitTtsChunks(text: string, maxLen = 90): string[] {
 async function fetchVolcanoMp3(
   text: string,
   accessToken?: string | null,
+  generation?: number,
 ): Promise<string> {
   const token = accessToken?.trim() || SUPABASE_ANON_KEY
   const t0 = Date.now()
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/tts`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      text,
-      speaker: getSelectedTtsSpeaker(),
-    }),
-  })
+  const controller = new AbortController()
+  currentFetchController = controller
+  const timeout = setTimeout(() => controller.abort(), 20_000)
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/tts`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text,
+        speaker: getSelectedTtsSpeaker(),
+      }),
+      signal: controller.signal,
+    })
 
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const msg =
-      (typeof data.error === 'string' && data.error) || `TTS 失败 (${res.status})`
-    throw new Error(msg)
-  }
+    const data = await res.json().catch(() => ({}))
+    if (generation != null && generation !== speakGeneration) {
+      throw new TtsCancelledError()
+    }
+    if (!res.ok) {
+      const msg =
+        (typeof data.error === 'string' && data.error) || `TTS 失败 (${res.status})`
+      throw new Error(msg)
+    }
 
-  const b64 = data.audio_base64 as string | undefined
-  if (!b64) throw new Error('TTS 未返回音频')
-  if (__DEV__) {
-    console.log(
-      `[luge tts] ${text.length}字 → ${Math.round(b64.length / 1024)}KB 音频，耗时 ${Date.now() - t0}ms`,
-    )
+    const b64 = data.audio_base64 as string | undefined
+    if (!b64) throw new Error('TTS 未返回音频')
+    if (__DEV__) {
+      console.log(
+        `[luge tts] ${text.length}字 → ${Math.round(b64.length / 1024)}KB 音频，耗时 ${Date.now() - t0}ms`,
+      )
+    }
+    return b64
+  } catch (e) {
+    if (generation != null && generation !== speakGeneration) {
+      throw new TtsCancelledError()
+    }
+    throw e
+  } finally {
+    clearTimeout(timeout)
+    if (currentFetchController === controller) currentFetchController = null
   }
-  return b64
 }
 
 async function speakWithSystemVoice(text: string) {
@@ -142,7 +171,11 @@ async function speakWithSystemVoice(text: string) {
   })
 }
 
-async function playMp3Base64(b64: string, generation: number): Promise<void> {
+async function playMp3Base64(
+  b64: string,
+  generation: number,
+  onPhase?: (phase: TtsPhase) => void,
+): Promise<void> {
   const audio = loadAudio()
   const fs = loadFs()
   if (!audio || !fs) {
@@ -203,6 +236,7 @@ async function playMp3Base64(b64: string, generation: number): Promise<void> {
 
     try {
       if (__DEV__) console.log('[luge tts] 开始播放')
+      onPhase?.('playing')
       player.play()
     } catch (e) {
       listener.remove()
@@ -215,10 +249,12 @@ async function playMp3Base64(b64: string, generation: number): Promise<void> {
 async function speakWithVolcanoAudio(
   text: string,
   accessToken?: string | null,
+  onPhase?: (phase: TtsPhase) => void,
 ) {
   const audio = loadAudio()
   const fs = loadFs()
   if (!audio || !fs) {
+    onPhase?.('playing')
     await speakWithSystemVoice(text)
     return
   }
@@ -228,36 +264,32 @@ async function speakWithVolcanoAudio(
   const generation = speakGeneration
   await ensurePlaybackAudioMode()
 
-  const chunks = splitTtsChunks(text)
-  if (!chunks.length) return
-
-  let nextFetch: Promise<string> | null = fetchVolcanoMp3(chunks[0], accessToken)
-
-  for (let i = 0; i < chunks.length; i++) {
+  // 通常整段讲解不超过 450 字，一次合成可以避免分段播放之间出现长空档。
+  // 超长文本仍然分段，但不再并行堆积多个 TTS 请求。
+  const stableChunks = splitTtsChunks(text, 900)
+  onPhase?.('preparing')
+  for (const chunk of stableChunks) {
     if (generation !== speakGeneration) return
-
-    const b64 = await nextFetch!
-    if (i + 1 < chunks.length) {
-      nextFetch = fetchVolcanoMp3(chunks[i + 1]!, accessToken)
-    }
-
+    const b64 = await fetchVolcanoMp3(chunk, accessToken, generation)
     if (generation !== speakGeneration) return
-
-    await playMp3Base64(b64, generation)
+    await playMp3Base64(b64, generation, onPhase)
   }
 }
 
 export async function speakVolcano(
   text: string,
   accessToken?: string | null,
+  options?: { onPhase?: (phase: TtsPhase) => void },
 ): Promise<void> {
   const trimmed = text.trim()
   if (!trimmed) return
 
   try {
-    await speakWithVolcanoAudio(trimmed, accessToken)
+    await speakWithVolcanoAudio(trimmed, accessToken, options?.onPhase)
   } catch (e) {
+    if (e instanceof TtsCancelledError) return
     if (__DEV__) console.warn('[luge tts] 豆包播放失败，回退系统朗读', e)
+    options?.onPhase?.('playing')
     await speakWithSystemVoice(trimmed)
   }
 }

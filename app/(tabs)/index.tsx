@@ -41,6 +41,7 @@ export default function RadarScreen() {
     isActive,
     isThinking,
     isSpeaking,
+    speechPhase,
     conversationReady,
     startLuge,
     stopLuge,
@@ -140,7 +141,9 @@ export default function RadarScreen() {
   const devVoiceStatus = !isActive
     ? '话筒关闭'
     : isSpeaking
-      ? '正在播报'
+      ? speechPhase === 'preparing'
+        ? '准备语音'
+        : '正在播报'
       : voice.state === 'listening' || voice.state === 'follow_up'
         ? '等待用户讲话'
         : voice.state === 'thinking' || isThinking

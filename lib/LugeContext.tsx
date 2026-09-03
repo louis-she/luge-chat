@@ -11,7 +11,7 @@ import { loadSession } from './auth'
 import { bubbleVisibleMs } from './bubbleTiming'
 import { createChatWindow } from './chatWindow'
 import { isDevSimulator } from './isDevSimulator'
-import { speakVolcano, stopVolcanoSpeech } from './volcanoTts'
+import { speakVolcano, stopVolcanoSpeech, type TtsPhase } from './volcanoTts'
 
 type SayOptions = {
   /** 主动讲解内容写入近期对话，便于用户追问「刚才那个」 */
@@ -23,6 +23,7 @@ type LugeContextValue = {
   speech: string | null
   isThinking: boolean
   isSpeaking: boolean
+  speechPhase: 'idle' | TtsPhase
   conversationReady: boolean
   startLuge: (opts?: { skipGreeting?: boolean }) => void
   stopLuge: () => void
@@ -40,6 +41,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
   const [speech, setSpeech] = useState<string | null>(null)
   const [isThinking, setIsThinking] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const [speechPhase, setSpeechPhase] = useState<'idle' | TtsPhase>('idle')
   const [conversationReady, setConversationReady] = useState(false)
   const greetingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -64,6 +66,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       await stopVolcanoSpeech()
       sayBusyRef.current = true
       setIsSpeaking(true)
+      setSpeechPhase('preparing')
 
       try {
         let ttsToken = accessToken ?? sessionRef.current
@@ -72,7 +75,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
           sessionRef.current = session?.access_token ?? null
           ttsToken = sessionRef.current
         }
-        await speakVolcano(text, ttsToken)
+        await speakVolcano(text, ttsToken, { onPhase: setSpeechPhase })
         if (options?.recordProactive && text.trim()) {
           chatWindowRef.current.appendProactive(text.trim())
         }
@@ -81,6 +84,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       } finally {
         sayBusyRef.current = false
         setIsSpeaking(false)
+        setSpeechPhase('idle')
       }
     },
     [],
@@ -123,6 +127,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
     setSpeech(null)
     setIsThinking(false)
     setIsSpeaking(false)
+    setSpeechPhase('idle')
     setConversationReady(false)
   }, [])
 
@@ -132,6 +137,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       speech,
       isThinking,
       isSpeaking,
+      speechPhase,
       conversationReady,
       startLuge,
       stopLuge,
@@ -145,6 +151,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       speech,
       isThinking,
       isSpeaking,
+      speechPhase,
       conversationReady,
       startLuge,
       stopLuge,
