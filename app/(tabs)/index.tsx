@@ -131,7 +131,10 @@ export default function RadarScreen() {
       setStartError(message)
       if (__DEV__) console.warn('[voice ask]', message)
     },
-    onQuotaExhausted: (e) => showExhausted(e.payload),
+    onQuotaExhausted: (e) => {
+      setStartError(null)
+      showExhausted(e.payload)
+    },
   })
 
   const handleProactiveSpeak = useCallback(
@@ -279,6 +282,7 @@ export default function RadarScreen() {
 
   const handleProactiveQuotaExhausted = useCallback(
     (e: LugeChatQuotaError) => {
+      setStartError(null)
       showExhausted(e.payload)
     },
     [showExhausted],

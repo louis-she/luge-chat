@@ -985,7 +985,9 @@ Deno.serve(async (req) => {
       return json(payload)
     }
 
-    if (modeRaw === 'ask') return processAsk(req, body)
+    // Await here so business errors (including quota exhaustion) are handled
+    // by the outer catch and returned with their proper HTTP status.
+    if (modeRaw === 'ask') return await processAsk(req, body)
 
     const wantDebug =
       body?.debug === true ||

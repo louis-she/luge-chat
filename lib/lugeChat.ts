@@ -200,7 +200,7 @@ async function readNdjsonLugeChat(
       } else if (evt.event === 'done') {
         result = evt as unknown as LugeChatResponse
       } else if (evt.event === 'error') {
-        if (evt.status === 402 && isQuotaExhaustedError(evt)) {
+        if (isQuotaExhaustedError(evt)) {
           throw new LugeChatQuotaError(evt as QuotaExhaustedPayload)
         }
         const msg =
@@ -276,7 +276,7 @@ export async function proactiveLugeGuide(
   if (__DEV__) {
     console.log(`[luge proactive] 请求往返 ${Date.now() - t0}ms`)
   }
-  if (res.status === 402 && isQuotaExhaustedError(data)) {
+  if (isQuotaExhaustedError(data)) {
     throw new LugeChatQuotaError(data)
   }
   if (!res.ok) {
@@ -320,7 +320,7 @@ export async function askLuge(
     body: JSON.stringify(body),
   })
   const data = await res.json().catch(() => ({}))
-  if (res.status === 402 && isQuotaExhaustedError(data)) {
+  if (isQuotaExhaustedError(data)) {
     throw new LugeChatQuotaError(data)
   }
   if (!res.ok) {
