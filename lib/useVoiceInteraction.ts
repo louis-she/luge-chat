@@ -5,9 +5,8 @@ import { getProactivePoiContext } from './proactiveContext'
 import { getSpeechRecognitionModule, releaseMicForPlayback } from './speechRecognition'
 import type { UserCoords } from './location'
 
-/** 语音助手式窗口：首次不说话 5 秒取消，说过话后约 1.5 秒静音结束本句。 */
+/** 语音助手式窗口：首次/追问不说话 5 秒取消；说话后的收句交给原生 ASR。 */
 export const VOICE_INITIAL_TIMEOUT_MS = 5_000
-export const VOICE_SILENCE_TIMEOUT_MS = 1_500
 export const VOICE_FOLLOW_UP_TIMEOUT_MS = 5_000
 
 export type VoiceInteractionState = 'idle' | 'listening' | 'thinking' | 'follow_up'
@@ -75,7 +74,6 @@ export function useVoiceInteraction(opts: {
         if (!text) return
         transcriptRef.current = text
         clearTimer()
-        timerRef.current = setTimeout(() => finishListening(), VOICE_SILENCE_TIMEOUT_MS)
       }),
       mod.addListener('end', () => {
         clearTimer()
