@@ -21,8 +21,14 @@ import {
   isLikelySameGeoName,
   normalizeGeoName,
 } from '../_shared/geoNameFuzzy.ts'
-import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
-import { adminClient } from './sessionLoc.ts'
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
+function adminClient(): SupabaseClient {
+  return createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  )
+}
 
 export type NearbyLandmark = {
   name: string

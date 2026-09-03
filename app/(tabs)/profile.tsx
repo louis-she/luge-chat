@@ -62,10 +62,6 @@ export default function ProfileScreen() {
             <Text style={styles.devTitle}>主动讲解地图</Text>
             <Text style={styles.devDesc}>查看当前位置可能主动播报的候选点</Text>
           </Pressable>
-          <Pressable style={styles.devCard} onPress={() => router.push('/rtc-spike')}>
-            <Text style={styles.devTitle}>RTC 语音通话测试</Text>
-            <Text style={styles.devDesc}>方案甲 V2 · 进房 + 火山 AI 对话</Text>
-          </Pressable>
         </ScrollView>
       </SafeAreaView>
     )
@@ -123,10 +119,6 @@ export default function ProfileScreen() {
           <Text style={styles.devDesc}>查看当前位置可能主动播报的候选点</Text>
         </Pressable>
 
-        <Pressable style={styles.devCard} onPress={() => router.push('/rtc-spike')}>
-          <Text style={styles.devTitle}>RTC 语音通话测试</Text>
-          <Text style={styles.devDesc}>方案甲 V2 · 进房 + 火山 AI 对话</Text>
-        </Pressable>
 
         <Pressable style={styles.logoutBtn} onPress={logout}>
           <Text style={styles.logoutText}>退出登录</Text>

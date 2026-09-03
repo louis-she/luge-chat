@@ -43,7 +43,6 @@ function RootNavigator() {
           name="proactive-guide-map"
           options={{ animation: 'slide_from_right' }}
         />
-        <Stack.Screen name="rtc-spike" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen
           name="advanced-settings"
           options={{ animation: 'slide_from_right' }}

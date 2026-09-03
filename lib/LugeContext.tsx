@@ -28,8 +28,9 @@ type LugeContextValue = {
   stopLuge: () => void
   say: (text: string, accessToken?: string | null, options?: SayOptions) => Promise<void>
   runWhileThinking: (fn: () => Promise<void>) => Promise<boolean>
-  /** 主动讲解文案写入近期对话（RTC ExternalTTS 不走 say 时用） */
+  /** 主动讲解文案写入近期对话，便于后续追问 */
   recordProactiveSpeech: (text: string) => void
+  recordRound: (user: string, assistant: string) => void
 }
 
 const LugeContext = createContext<LugeContextValue | null>(null)
@@ -101,6 +102,10 @@ export function LugeProvider({ children }: { children: ReactNode }) {
     if (t) chatWindowRef.current.appendProactive(t)
   }, [])
 
+  const recordRound = useCallback((user: string, assistant: string) => {
+    chatWindowRef.current.appendRound(user, assistant)
+  }, [])
+
   const startLuge = useCallback((_opts?: { skipGreeting?: boolean }) => {
     chatWindowRef.current.clear()
     setIsActive(true)
@@ -133,6 +138,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       say,
       runWhileThinking,
       recordProactiveSpeech,
+      recordRound,
     }),
     [
       isActive,
@@ -145,6 +151,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       say,
       runWhileThinking,
       recordProactiveSpeech,
+      recordRound,
     ],
   )
 

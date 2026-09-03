@@ -31,29 +31,28 @@ import { useProactiveGuide } from '../../lib/useProactiveGuide'
 import { useProactiveGuideSettings } from '../../lib/ProactiveGuideContext'
 import { LugeChatQuotaError } from '../../lib/lugeChat'
 import { isDevSimulator } from '../../lib/isDevSimulator'
-import { useVolcVoiceSession } from '../../lib/useVolcVoiceSession'
+import { useVoiceInteraction } from '../../lib/useVoiceInteraction'
 
 export default function RadarScreen() {
   const deviceMode = !isDevSimulator()
-  const volc = useVolcVoiceSession()
   const [startError, setStartError] = useState<string | null>(null)
 
   const {
     isActive,
     isThinking,
+    isSpeaking,
     conversationReady,
     startLuge,
     stopLuge,
     say,
     runWhileThinking,
-    recordProactiveSpeech,
+    recordRound,
   } = useLuge()
   const { coords, setManualLocation } = useUserLocation()
   const { settings: proactiveSettings, ready: proactiveReady } = useProactiveGuideSettings()
   const proactiveSpan = settingsToSpanConfig(proactiveSettings)
   const { quota, refreshQuota, showExhausted } = useQuota()
   const [companionMenuOpen, setCompanionMenuOpen] = useState(false)
-  const [micMuted, setMicMuted] = useState(false)
   const [proactiveMapOverlay, setProactiveMapOverlay] = useState<ProactiveMapOverlay>(
     () => ({
       ...EMPTY_PROACTIVE_MAP_OVERLAY,
@@ -95,15 +94,9 @@ export default function RadarScreen() {
 
   useEffect(() => {
     if (isActive) return
-    setMicMuted(false)
     setCompanionMenuOpen(false)
     setStartError(null)
   }, [isActive])
-
-  useEffect(() => {
-    if (!isActive) return
-    volc.setMicEnabled(!micMuted)
-  }, [isActive, micMuted, volc.setMicEnabled])
 
   const handleStartLuge = useCallback(async () => {
     setStartError(null)
@@ -115,42 +108,31 @@ export default function RadarScreen() {
       })
       return
     }
-    const result = await volc.join()
-    if (!result.ok) {
-      if ('quota' in result) {
-        showExhausted(result.quota)
-        return
-      }
-      setStartError(result.message)
-      return
-    }
-    void refreshQuota()
     startLuge({ skipGreeting: true })
-  }, [volc.join, startLuge, quota, showExhausted, refreshQuota])
+  }, [startLuge, quota, showExhausted])
 
   const handleStopLuge = useCallback(() => {
-    setMicMuted(false)
     setCompanionMenuOpen(false)
-    if (volc.inCall) {
-      void volc.leave().then(() => refreshQuota())
-    } else {
-      void refreshQuota()
-    }
+    void refreshQuota()
     stopLuge()
-  }, [volc.inCall, volc.leave, stopLuge, refreshQuota])
+  }, [stopLuge, refreshQuota])
 
   const handleAvatarPress = useCallback(() => {
     if (!deviceMode) return
     setCompanionMenuOpen((open) => !open)
   }, [deviceMode])
 
-  const handleToggleMic = useCallback(() => {
-    setMicMuted((muted) => {
-      const next = !muted
-      volc.setMicEnabled(!next)
-      return next
-    })
-  }, [volc.setMicEnabled])
+  const voice = useVoiceInteraction({
+    active: isActive,
+    coords,
+    say,
+    recordRound,
+    onError: (message) => {
+      setStartError(message)
+      if (__DEV__) console.warn('[voice ask]', message)
+    },
+    onQuotaExhausted: (e) => showExhausted(e.payload),
+  })
 
   const handleProactiveSpeak = useCallback(
     async (
@@ -178,17 +160,10 @@ export default function RadarScreen() {
           text.trim().length,
         )
       }
-      if (volc.inCall) {
-        const ok = await volc.speakExternal(text, {
-          topicPoi: meta?.topicPoi,
-        })
-        if (ok) recordProactiveSpeech(text)
-        else await say(text, accessToken, { recordProactive: true })
-        return
-      }
       await say(text, accessToken, { recordProactive: true })
+      if (isActive) await voice.startFollowUp()
     },
-    [volc.inCall, volc.speakExternal, say, recordProactiveSpeech, activateSpeakFocus],
+    [say, isActive, voice.startFollowUp, activateSpeakFocus],
   )
 
   const handleProactiveDevOverlay = useCallback((patch: ProactiveDevOverlay) => {
@@ -319,8 +294,7 @@ export default function RadarScreen() {
       isActive &&
       conversationReady &&
       proactiveReady &&
-      proactiveSettings.enabled &&
-      volc.inCall,
+      proactiveSettings.enabled,
     coords,
     settings: proactiveSettings,
     busy: isThinking,
@@ -404,18 +378,16 @@ export default function RadarScreen() {
     if (!isActive || !proactiveSettings.enabled) setSelectedDevPoi(null)
   }, [isActive, proactiveSettings.enabled])
 
-  const rtcLive = isActive && volc.inCall
-
   useEffect(() => {
-    if (!rtcLive) return
+    if (!isActive) return
     const timer = setInterval(() => {
       void refreshQuota()
     }, 12_000)
     return () => clearInterval(timer)
-  }, [rtcLive, refreshQuota])
+  }, [isActive, refreshQuota])
 
-  const companionSpeaking = rtcLive
-  const companionThinking = isActive ? volc.busy && !volc.inCall : false
+  const companionSpeaking = isSpeaking
+  const companionThinking = isThinking || voice.state === 'thinking'
 
   return (
     <View style={styles.root}>
@@ -503,7 +475,7 @@ export default function RadarScreen() {
         </View>
       ) : null}
 
-      {startError && !isActive ? (
+      {startError ? (
         <View style={styles.errorChip}>
           <Text style={styles.errorChipText}>{startError}</Text>
         </View>
@@ -511,7 +483,7 @@ export default function RadarScreen() {
 
       {!isActive ? (
         <View style={styles.startLayer}>
-          {volc.busy ? (
+          {isThinking ? (
             <ActivityIndicator size="large" color="#38bdf8" />
           ) : (
             <StartLugeButton active={false} onPress={() => void handleStartLuge()} />
@@ -522,11 +494,11 @@ export default function RadarScreen() {
           deviceMode={deviceMode}
           speech={null}
           thinking={companionThinking}
-          listening={false}
+          listening={voice.state === 'listening' || voice.state === 'follow_up'}
           speaking={companionSpeaking}
-          micMuted={micMuted}
+          micMuted={false}
           menuOpen={companionMenuOpen}
-          onToggleMic={handleToggleMic}
+          onToggleMic={() => void voice.start()}
           onPress={handleAvatarPress}
           onLongPress={handleStopLuge}
         />

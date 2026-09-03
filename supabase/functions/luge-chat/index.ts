@@ -6,9 +6,15 @@ const corsHeaders = {
 
 import {
   adminClient,
+  applyFootprintDecision,
+  classifyFootprint,
   fetchNearbyFootprints,
   filterFootprintsForCue,
 } from './footprint.ts'
+import {
+  formatLandmarksForLlm,
+  lookupNearbyLandmarks,
+} from '../volc-voice-chat/nearbyLandmarks.ts'
 import {
   consumeOneAsk,
   parseQuotaAuth,
@@ -787,6 +793,75 @@ dbg.mark('主动讲解请求')
   return payload
 }
 
+async function processAsk(req: Request, body: Record<string, unknown>) {
+  const latitude = Number(body?.latitude)
+  const longitude = Number(body?.longitude)
+  const headingRaw = body?.heading == null ? null : Number(body.heading)
+  const heading = headingRaw != null && Number.isFinite(headingRaw) ? headingRaw : null
+  const userMessage = String(body?.user_message ?? '').trim().slice(0, 2000)
+  if (!userMessage) return json({ error: 'user_message is required' }, 400)
+
+  const { userId, deviceKey } = await parseQuotaAuth(req, {
+    device_id: body?.device_id as string | undefined,
+  })
+  const quota = await consumeOneAsk(adminClient(), { userId, deviceKey })
+  const db = adminClient()
+  const geo = await resolveGeoContext(db, latitude, longitude)
+  const nearby = await lookupNearbyLandmarks({ lat: latitude, lng: longitude, heading })
+  const context = body?.proactive_context && typeof body.proactive_context === 'object'
+    ? body.proactive_context as Record<string, unknown>
+    : null
+  const conversation = Array.isArray(body?.conversation)
+    ? body.conversation.slice(-12).map((m) => ({
+        role: m?.role === 'assistant' ? 'assistant' : 'user',
+        content: String(m?.content ?? '').slice(0, 1200),
+      }))
+    : []
+  const messages = [
+    {
+      role: 'system',
+      content: `你是路鸽，回答用户关于当前位置、路线和周边地理对象的问题。回答要口语化、简洁、适合语音播报；不要编造数据库没有的具体地名。当前位置：${geo.text || '未知'}。周边地标：\n${formatLandmarksForLlm(nearby.landmarks, { lat: latitude, lng: longitude, heading, note: nearby.note })}${context ? `\n刚才主动讲解的对象：${String(context.poi_name ?? '')}。只有用户明确追问它时才把本轮兴趣归到该对象。` : ''}`,
+    },
+    ...conversation,
+    { role: 'user', content: userMessage },
+  ]
+  if (!DEEPSEEK_API_KEY) throw new Error('问答服务未配置')
+  const res = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: DEEPSEEK_MODEL, messages, temperature: 0.3, max_tokens: 600, thinking: { type: 'disabled' } }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error('问答模型请求失败')
+  const answer = stripModelThinking(String(data?.choices?.[0]?.message?.content ?? '')).trim()
+  if (!answer) throw new Error('路鸽没有生成回答')
+
+  let footprint: Record<string, unknown> | null = null
+  if (userId) {
+    const candidates = await fetchNearbyFootprints(db, userId, latitude, longitude)
+    const classified = await classifyFootprint(
+      userMessage,
+      geo.text || '',
+      candidates,
+      undefined,
+      context && typeof context.poi_name === 'string'
+        ? { poi_name: context.poi_name, lat: Number(context.lat) || latitude, lng: Number(context.lng) || longitude, category: String(context.category ?? '') }
+        : null,
+    )
+    if (classified.decision.action !== 'skip') {
+      const written = await applyFootprintDecision(db, userId, classified.decision, {
+        userMessage,
+        assistantMessage: answer,
+        userLat: latitude,
+        userLng: longitude,
+        heading,
+      })
+      footprint = { ...written, action: classified.decision.action }
+    }
+  }
+  return json({ answer, proactive: false, skipped: false, map_hit: null, footprint, quota: { tier: quota.tier, remaining: quota.remaining, limit: quota.limit } })
+}
+
 /** 开发者地图：候选主动讲解 POI，不扣次、不调 LLM */
 async function processProactivePreview(
   body: Record<string, unknown>,
@@ -887,13 +962,13 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json()
     const modeRaw = typeof body?.mode === 'string' ? body.mode.trim() : ''
-    if (modeRaw !== 'proactive' && modeRaw !== 'proactive_preview') {
+    if (modeRaw !== 'ask' && modeRaw !== 'proactive' && modeRaw !== 'proactive_preview') {
       return json(
-        { error: 'mode must be proactive or proactive_preview' },
+        { error: 'mode must be ask, proactive or proactive_preview' },
         400,
       )
     }
-    const mode = modeRaw as 'proactive' | 'proactive_preview'
+    const mode = modeRaw as 'ask' | 'proactive' | 'proactive_preview'
     const latitude = Number(body?.latitude)
     const longitude = Number(body?.longitude)
 
@@ -909,6 +984,8 @@ Deno.serve(async (req) => {
       const payload = await processProactivePreview(body, dbg)
       return json(payload)
     }
+
+    if (modeRaw === 'ask') return processAsk(req, body)
 
     const wantDebug =
       body?.debug === true ||

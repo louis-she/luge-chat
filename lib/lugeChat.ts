@@ -4,7 +4,7 @@ import type { UserCoords } from './location'
 import { isQuotaExhaustedError, type QuotaExhaustedPayload } from './quota'
 
 export type LugeChatRequest = {
-  mode: 'proactive' | 'proactive_preview'
+  mode: 'ask' | 'proactive' | 'proactive_preview'
   latitude: number
   longitude: number
   heading?: number | null
@@ -44,6 +44,15 @@ export type LugeChatRequest = {
   force_poi_lat?: number
   force_poi_lng?: number
   force_poi_type?: string
+  user_message?: string
+  conversation?: Array<{ role: 'user' | 'assistant'; content: string }>
+  proactive_context?: {
+    poi_name: string
+    amap_poi_id?: string | null
+    lat: number
+    lng: number
+    category?: string
+  } | null
 }
 
 export type LugeChatDebugStep = {
@@ -283,4 +292,41 @@ export async function proactiveLugeGuide(
     printLugeChatDebugTimeline(result.debug)
   }
   return result
+}
+
+export async function askLuge(
+  coords: UserCoords,
+  userMessage: string,
+  accessToken?: string | null,
+  options?: {
+    conversation?: Array<{ role: 'user' | 'assistant'; content: string }>
+    proactiveContext?: LugeChatRequest['proactive_context']
+  },
+): Promise<LugeChatResponse> {
+  const { headers, deviceId } = await functionHeaders(accessToken)
+  const body: LugeChatRequest = {
+    mode: 'ask',
+    latitude: coords.latitude,
+    longitude: coords.longitude,
+    heading: coords.heading,
+    device_id: deviceId,
+    user_message: userMessage.trim(),
+    conversation: options?.conversation,
+    proactive_context: options?.proactiveContext ?? null,
+  }
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/luge-chat`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (res.status === 402 && isQuotaExhaustedError(data)) {
+    throw new LugeChatQuotaError(data)
+  }
+  if (!res.ok) {
+    throw new Error(
+      (typeof data.error === 'string' && data.error) || '路鸽暂时无法回答',
+    )
+  }
+  return data as LugeChatResponse
 }

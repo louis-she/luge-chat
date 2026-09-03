@@ -40,7 +40,6 @@
       "expo-native-wechat",
       "./plugins/withIosSimulatorDestinations.js",
       "./plugins/withWechatSimArm64.js",
-      "./plugins/withVolcRtc.js",
       [
         "expo-location",
         {
