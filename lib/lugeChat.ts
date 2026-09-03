@@ -69,6 +69,10 @@ export type LugeChatDebug = {
   user_id?: string | null
   footprint_decision?: unknown
   map_hit_name?: string | null
+  user_message?: string
+  conversation?: Array<{ role: 'user' | 'assistant'; content: string }>
+  proactive_context?: unknown
+  answer?: string
 }
 
 export type LugeChatResponse = {
@@ -140,6 +144,16 @@ export function printLugeChatDebugTimeline(debug: LugeChatDebug) {
   }
   if (debug.total_ms != null) {
     console.log(`[luge] 服务端总耗时 ${debug.total_ms}ms`)
+  }
+  if (debug.user_message) {
+    console.log('[luge] 追问上下文', {
+      user_message: debug.user_message,
+      conversation: debug.conversation ?? [],
+      proactive_context: debug.proactive_context ?? null,
+    })
+  }
+  if (debug.answer) {
+    console.log('[luge] 追问回答', debug.answer)
   }
   if (debug.footprint_decision) {
     console.log('[luge] 足迹判定', debug.footprint_decision)
@@ -314,6 +328,13 @@ export async function askLuge(
     conversation: options?.conversation,
     proactive_context: options?.proactiveContext ?? null,
   }
+  if (__DEV__) {
+    console.log('[luge ask] 请求', {
+      user_message: body.user_message,
+      conversation: body.conversation ?? [],
+      proactive_context: body.proactive_context,
+    })
+  }
   const res = await fetch(`${SUPABASE_URL}/functions/v1/luge-chat`, {
     method: 'POST',
     headers,
@@ -327,6 +348,10 @@ export async function askLuge(
     throw new Error(
       (typeof data.error === 'string' && data.error) || '路鸽暂时无法回答',
     )
+  }
+  if (__DEV__) {
+    console.log('[luge ask] 回答', data.answer)
+    if (data.debug) printLugeChatDebugTimeline(data.debug)
   }
   return data as LugeChatResponse
 }

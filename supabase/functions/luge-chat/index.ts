@@ -793,7 +793,12 @@ dbg.mark('主动讲解请求')
   return payload
 }
 
-async function processAsk(req: Request, body: Record<string, unknown>) {
+async function processAsk(
+  req: Request,
+  body: Record<string, unknown>,
+  dbg: ReturnType<typeof createDbg>,
+  includeDebugPayload: boolean,
+) {
   const latitude = Number(body?.latitude)
   const longitude = Number(body?.longitude)
   const headingRaw = body?.heading == null ? null : Number(body.heading)
@@ -801,11 +806,15 @@ async function processAsk(req: Request, body: Record<string, unknown>) {
   const userMessage = String(body?.user_message ?? '').trim().slice(0, 2000)
   if (!userMessage) return json({ error: 'user_message is required' }, 400)
 
+  dbg.mark('追问请求', `${userMessage.length}字`)
+
   const { userId, deviceKey } = await parseQuotaAuth(req, {
     device_id: body?.device_id as string | undefined,
   })
   const quota = await consumeOneAsk(adminClient(), { userId, deviceKey })
+  dbg.mark('额度扣减', `剩余 ${quota.remaining}/${quota.limit}`)
   const db = adminClient()
+  dbg.mark('上下文准备', `历史 ${Array.isArray(body?.conversation) ? body.conversation.length : 0} 条`)
   const geo = await resolveGeoContext(db, latitude, longitude)
   const nearby = await lookupNearbyLandmarks({ lat: latitude, lng: longitude, heading })
   const context = body?.proactive_context && typeof body.proactive_context === 'object'
@@ -820,11 +829,23 @@ async function processAsk(req: Request, body: Record<string, unknown>) {
   const messages = [
     {
       role: 'system',
-      content: `你是路鸽，回答用户关于当前位置、路线和周边地理对象的问题。回答要口语化、简洁、适合语音播报；不要编造数据库没有的具体地名。当前位置：${geo.text || '未知'}。周边地标：\n${formatLandmarksForLlm(nearby.landmarks, { lat: latitude, lng: longitude, heading, note: nearby.note })}${context ? `\n刚才主动讲解的对象：${String(context.poi_name ?? '')}。只有用户明确追问它时才把本轮兴趣归到该对象。` : ''}`,
+      content: `你是路鸽，回答用户关于当前位置、路线和周边地理对象的问题。回答要口语化、简洁、适合语音播报。
+
+对话衔接规则：
+- 如果用户说“这个塔”“它”“刚才那个”等，而最近对话中只有一个合理对象，直接把它理解为该对象并回答，不要重复确认“您说的是……吧”，也不要把用户已经明确的内容再复述一遍。
+- 只有存在两个或以上同样合理的指代对象时，才用一句话澄清；否则直接回答问题。
+- 不要向用户暴露“数据库、知识库、检索链路、模型”等内部实现。
+- 如果没有可靠的具体资料，使用自然表达：“我查了一下，目前没有找到可靠的具体记载。”随后可以补充常识或推论，但必须明确说“结合现有资料推测”或“这部分只是推测”，不能编造精确年代、人物或事件。
+- 已知事实和推测分开表达，优先回答用户真正问的内容，不要以免责声明开头。
+
+当前位置：${geo.text || '未知'}。周边地标：
+${formatLandmarksForLlm(nearby.landmarks, { lat: latitude, lng: longitude, heading, note: nearby.note })}${context ? `
+刚才主动讲解的对象：${String(context.poi_name ?? '')}。当用户使用明确指代追问时，默认延续这个对象。` : ''}`,
     },
     ...conversation,
     { role: 'user', content: userMessage },
   ]
+  dbg.logPrompt('追问', messages)
   if (!DEEPSEEK_API_KEY) throw new Error('问答服务未配置')
   const res = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -835,6 +856,7 @@ async function processAsk(req: Request, body: Record<string, unknown>) {
   if (!res.ok) throw new Error('问答模型请求失败')
   const answer = stripModelThinking(String(data?.choices?.[0]?.message?.content ?? '')).trim()
   if (!answer) throw new Error('路鸽没有生成回答')
+  dbg.mark('问答模型完成', `${answer.length}字`)
 
   let footprint: Record<string, unknown> | null = null
   if (userId) {
@@ -859,7 +881,27 @@ async function processAsk(req: Request, body: Record<string, unknown>) {
       footprint = { ...written, action: classified.decision.action }
     }
   }
-  return json({ answer, proactive: false, skipped: false, map_hit: null, footprint, quota: { tier: quota.tier, remaining: quota.remaining, limit: quota.limit } })
+  const payload: Record<string, unknown> = {
+    answer,
+    proactive: false,
+    skipped: false,
+    map_hit: null,
+    footprint,
+    quota: { tier: quota.tier, remaining: quota.remaining, limit: quota.limit },
+  }
+  if (includeDebugPayload) {
+    payload.debug = {
+      timeline: dbg.steps(),
+      total_ms: dbg.total(),
+      logged_in: Boolean(userId),
+      user_id: userId,
+      user_message: userMessage,
+      conversation,
+      proactive_context: context,
+      answer,
+    }
+  }
+  return json(payload)
 }
 
 /** 开发者地图：候选主动讲解 POI，不扣次、不调 LLM */
@@ -976,6 +1018,11 @@ Deno.serve(async (req) => {
       return json({ error: 'latitude and longitude are required' }, 400)
     }
 
+    const wantDebug =
+      body?.debug === true ||
+      req.headers.get('x-luge-debug') === '1' ||
+      Deno.env.get('LUGE_DEBUG') === '1'
+
     if (mode === 'proactive_preview') {
       if (req.headers.get('x-luge-debug') !== '1') {
         return json({ error: 'proactive_preview requires X-Luge-Debug' }, 403)
@@ -987,12 +1034,10 @@ Deno.serve(async (req) => {
 
     // Await here so business errors (including quota exhaustion) are handled
     // by the outer catch and returned with their proper HTTP status.
-    if (modeRaw === 'ask') return await processAsk(req, body)
-
-    const wantDebug =
-      body?.debug === true ||
-      req.headers.get('x-luge-debug') === '1' ||
-      Deno.env.get('LUGE_DEBUG') === '1'
+    if (modeRaw === 'ask') {
+      const dbg = createDbg(wantDebug)
+      return await processAsk(req, body, dbg, wantDebug)
+    }
 
     if (wantDebug) {
       const stream = new ReadableStream({

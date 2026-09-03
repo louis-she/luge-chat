@@ -32,6 +32,7 @@ type LugeContextValue = {
   /** 主动讲解文案写入近期对话，便于后续追问 */
   recordProactiveSpeech: (text: string) => void
   recordRound: (user: string, assistant: string) => void
+  getConversation: () => Array<{ role: 'user' | 'assistant'; content: string }>
 }
 
 const LugeContext = createContext<LugeContextValue | null>(null)
@@ -110,6 +111,11 @@ export function LugeProvider({ children }: { children: ReactNode }) {
     chatWindowRef.current.appendRound(user, assistant)
   }, [])
 
+  const getConversation = useCallback(
+    () => chatWindowRef.current.snapshot(),
+    [],
+  )
+
   const startLuge = useCallback((_opts?: { skipGreeting?: boolean }) => {
     chatWindowRef.current.clear()
     setIsActive(true)
@@ -145,6 +151,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       runWhileThinking,
       recordProactiveSpeech,
       recordRound,
+      getConversation,
     }),
     [
       isActive,
@@ -159,6 +166,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
       runWhileThinking,
       recordProactiveSpeech,
       recordRound,
+      getConversation,
     ],
   )
 

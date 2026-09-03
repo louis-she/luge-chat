@@ -48,6 +48,7 @@ export default function RadarScreen() {
     say,
     runWhileThinking,
     recordRound,
+    getConversation,
   } = useLuge()
   const { coords, setManualLocation } = useUserLocation()
   const { settings: proactiveSettings, ready: proactiveReady } = useProactiveGuideSettings()
@@ -128,6 +129,7 @@ export default function RadarScreen() {
     coords,
     say,
     recordRound,
+    getConversation,
     onError: (message) => {
       setStartError(message)
       if (__DEV__) console.warn('[voice ask]', message)

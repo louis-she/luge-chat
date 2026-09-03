@@ -18,6 +18,7 @@ export function useVoiceInteraction(opts: {
   coords: UserCoords | null
   say: (text: string, token?: string | null) => Promise<void>
   recordRound: (user: string, assistant: string) => void
+  getConversation: () => Array<{ role: 'user' | 'assistant'; content: string }>
   onError?: (message: string) => void
   onQuotaExhausted?: (e: LugeChatQuotaError) => void
 }) {
@@ -26,7 +27,6 @@ export function useVoiceInteraction(opts: {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const transcriptRef = useRef('')
   const submittedRef = useRef(false)
-  const conversationRef = useRef<Array<{ role: 'user' | 'assistant'; content: string }>>([])
   const unsubsRef = useRef<Array<{ remove: () => void }>>([])
   const optsRef = useRef(opts)
   optsRef.current = opts
@@ -113,15 +113,9 @@ export function useVoiceInteraction(opts: {
           try {
             const session = await loadSession()
             const result = await askLuge(current.coords!, text, session?.access_token, {
-              conversation: conversationRef.current,
+              conversation: current.getConversation(),
               proactiveContext: getProactivePoiContext(),
             })
-            const nextConversation: Array<{ role: 'user' | 'assistant'; content: string }> = [
-              ...conversationRef.current,
-              { role: 'user', content: text },
-              { role: 'assistant', content: result.answer },
-            ]
-            conversationRef.current = nextConversation.slice(-12)
             current.recordRound(text, result.answer)
             await current.say(result.answer, session?.access_token)
             if (optsRef.current.active) listen(true)
