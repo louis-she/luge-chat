@@ -160,13 +160,24 @@ async function fetchVolcanoMp3(
 }
 
 async function speakWithSystemVoice(text: string) {
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    const fail = (error: unknown) => {
+      if (settled) return
+      settled = true
+      reject(error instanceof Error ? error : new Error('系统语音播放失败'))
+    }
     Speech.speak(text, {
       language: 'zh-CN',
       rate: 0.95,
-      onDone: () => resolve(),
-      onStopped: () => resolve(),
-      onError: () => resolve(),
+      onDone: finish,
+      onStopped: finish,
+      onError: fail,
     })
   })
 }
@@ -187,16 +198,50 @@ async function playMp3Base64(
   if (generation !== speakGeneration) return
 
   await ensurePlaybackAudioMode()
-  const player = audio.createAudioPlayer(uri)
+  const player = audio.createAudioPlayer(uri, {
+    updateInterval: 100,
+    keepAudioSessionActive: true,
+  })
   currentPlayer = player
 
   await new Promise<void>((resolve, reject) => {
     let settled = false
     let sawPlaying = false
-    const finish = (reason: string) => {
-      if (settled) return
-      settled = true
+    let sawProgress = false
+    let lastStatusKey = ''
+    let startupTimer: ReturnType<typeof setTimeout> | null = null
+
+    const logStatus = (status: typeof player.currentStatus, event: string) => {
+      if (!__DEV__) return
+      const key = [
+        event,
+        status.playing,
+        status.isLoaded,
+        status.isBuffering,
+        status.didJustFinish,
+        status.error ?? '',
+      ].join('|')
+      if (key === lastStatusKey) return
+      lastStatusKey = key
+      console.log('[luge tts] 播放器状态', {
+        event,
+        playing: status.playing,
+        isLoaded: status.isLoaded,
+        isBuffering: status.isBuffering,
+        currentTime: Number(status.currentTime.toFixed(2)),
+        duration: Number(status.duration.toFixed(2)),
+        volume: player.volume,
+        muted: player.muted,
+        playbackState: status.playbackState,
+        timeControlStatus: status.timeControlStatus,
+        reasonForWaitingToPlay: status.reasonForWaitingToPlay,
+        error: status.error,
+      })
+    }
+
+    const cleanup = () => {
       clearTimeout(timer)
+      if (startupTimer) clearTimeout(startupTimer)
       listener.remove()
       if (currentPlayer === player) currentPlayer = null
       try {
@@ -204,17 +249,43 @@ async function playMp3Base64(
       } catch {
         /* ignore */
       }
+    }
+
+    const finish = (reason: string) => {
+      if (settled) return
+      settled = true
+      cleanup()
       if (__DEV__) console.log(`[luge tts] 播放完成 (${reason})`)
       resolve()
     }
 
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (__DEV__) console.warn('[luge tts] 播放失败', error.message)
+      reject(error)
+    }
+
     const listener = player.addListener('playbackStatusUpdate', (status) => {
+      logStatus(status, 'update')
       if (generation !== speakGeneration) {
         finish('cancelled')
         return
       }
+      if (status.error) {
+        fail(new Error(`播放器错误：${status.error}`))
+        return
+      }
+      const firstPlayingStatus = status.playing && !sawPlaying
       if (status.playing) sawPlaying = true
+      if (status.currentTime > 0.05) sawProgress = true
+      if (firstPlayingStatus) onPhase?.('playing')
       if (status.didJustFinish) {
+        if (!sawPlaying || !sawProgress || status.duration <= 0) {
+          fail(new Error('音频未进入有效播放状态'))
+          return
+        }
         finish('didJustFinish')
         return
       }
@@ -231,17 +302,21 @@ async function playMp3Base64(
 
     const timer = setTimeout(() => {
       if (__DEV__) console.warn('[luge tts] 播放超时，跳过本段')
-      finish('timeout')
+      fail(new Error('音频播放超时'))
     }, 90_000)
 
     try {
+      const initialStatus = player.currentStatus
+      logStatus(initialStatus, 'before-play')
       if (__DEV__) console.log('[luge tts] 开始播放')
-      onPhase?.('playing')
       player.play()
+      startupTimer = setTimeout(() => {
+        if (!sawPlaying && !settled) {
+          fail(new Error('音频未开始播放'))
+        }
+      }, 8_000)
     } catch (e) {
-      listener.remove()
-      clearTimeout(timer)
-      reject(e)
+      fail(e instanceof Error ? e : new Error(String(e)))
     }
   })
 }

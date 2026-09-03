@@ -82,6 +82,7 @@ export function LugeProvider({ children }: { children: ReactNode }) {
         }
       } catch (e) {
         if (__DEV__) console.warn('[luge tts]', e)
+        throw e
       } finally {
         sayBusyRef.current = false
         setIsSpeaking(false)
