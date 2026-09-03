@@ -137,6 +137,16 @@ export default function RadarScreen() {
     },
   })
 
+  const devVoiceStatus = !isActive
+    ? '话筒关闭'
+    : isSpeaking
+      ? '正在播报'
+      : voice.state === 'listening' || voice.state === 'follow_up'
+        ? '等待用户讲话'
+        : voice.state === 'thinking' || isThinking
+          ? '正在思考'
+          : '话筒关闭'
+
   const handleProactiveSpeak = useCallback(
     async (
       text: string,
@@ -479,6 +489,17 @@ export default function RadarScreen() {
         </View>
       ) : null}
 
+      {__DEV__ ? (
+        <View
+          style={[
+            styles.devVoiceStatusChip,
+            isActive && quota ? styles.devVoiceStatusBelowQuota : null,
+          ]}
+        >
+          <Text style={styles.devVoiceStatusText}>语音：{devVoiceStatus}</Text>
+        </View>
+      ) : null}
+
       {startError ? (
         <View style={styles.errorChip}>
           <Text style={styles.errorChipText}>{startError}</Text>
@@ -535,6 +556,24 @@ const styles = StyleSheet.create({
     color: '#e2e8f0',
     fontSize: 12,
     fontWeight: '600',
+  },
+  devVoiceStatusChip: {
+    position: 'absolute',
+    top: 56,
+    right: 16,
+    backgroundColor: 'rgba(2, 132, 199, 0.88)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    zIndex: 21,
+  },
+  devVoiceStatusBelowQuota: {
+    top: 88,
+  },
+  devVoiceStatusText: {
+    color: '#f0f9ff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   errorChip: {
     position: 'absolute',
