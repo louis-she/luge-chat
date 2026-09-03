@@ -5,9 +5,11 @@ import { getProactivePoiContext } from './proactiveContext'
 import { getSpeechRecognitionModule, releaseMicForPlayback } from './speechRecognition'
 import type { UserCoords } from './location'
 
-/** 语音助手式窗口：首次/追问不说话 5 秒取消；说话后的收句交给原生 ASR。 */
+/** 语音助手式窗口：首次/追问不说话 5 秒取消，之后按音量静音收句。 */
 export const VOICE_INITIAL_TIMEOUT_MS = 5_000
 export const VOICE_FOLLOW_UP_TIMEOUT_MS = 5_000
+export const VOICE_SILENCE_TIMEOUT_MS = 3_000
+const VOICE_ACTIVITY_THRESHOLD = 0.5
 
 export type VoiceInteractionState = 'idle' | 'listening' | 'thinking' | 'follow_up'
 
@@ -67,13 +69,30 @@ export function useVoiceInteraction(opts: {
     setPhase(followUp ? 'follow_up' : 'listening')
     const timeout = followUp ? VOICE_FOLLOW_UP_TIMEOUT_MS : VOICE_INITIAL_TIMEOUT_MS
     timerRef.current = setTimeout(() => finishListening(), timeout)
+    const markSpeechActivity = () => {
+      clearTimer()
+      timerRef.current = setTimeout(
+        () => finishListening(),
+        VOICE_SILENCE_TIMEOUT_MS,
+      )
+    }
     unsubsRef.current = [
+      mod.addListener('speechstart', () => {
+        markSpeechActivity()
+      }),
+      mod.addListener('volumechange', (event) => {
+        if (!event || !('value' in event)) return
+        const value = Number(event.value)
+        if (Number.isFinite(value) && value >= VOICE_ACTIVITY_THRESHOLD) {
+          markSpeechActivity()
+        }
+      }),
       mod.addListener('result', (event) => {
         if (!event || !('results' in event)) return
         const text = event.results?.[0]?.transcript?.trim() ?? ''
         if (!text) return
         transcriptRef.current = text
-        clearTimer()
+        markSpeechActivity()
       }),
       mod.addListener('end', () => {
         clearTimer()
@@ -122,7 +141,13 @@ export function useVoiceInteraction(opts: {
       }),
     ]
     try {
-      mod.start({ lang: 'zh-CN', interimResults: true, continuous: false, addsPunctuation: true })
+      mod.start({
+        lang: 'zh-CN',
+        interimResults: true,
+        continuous: true,
+        addsPunctuation: true,
+        volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
+      })
     } catch {
       cleanupListeners()
       setPhase('idle')

@@ -10,20 +10,30 @@ export type SpeechErrorEvent = {
   message: string
 }
 
+export type SpeechVolumeEvent = {
+  value: number
+}
+
 export type SpeechRecognitionModule = {
   start: (options: {
     lang?: string
     interimResults?: boolean
     continuous?: boolean
     addsPunctuation?: boolean
+    volumeChangeEventOptions?: {
+      enabled?: boolean
+      intervalMillis?: number
+    }
   }) => void
   stop: () => void
   abort: () => void
   isRecognitionAvailable: () => boolean
   requestPermissionsAsync: () => Promise<{ granted: boolean }>
   addListener: (
-    event: 'start' | 'end' | 'result' | 'error',
-    listener: (event: SpeechResultEvent | SpeechErrorEvent | null) => void,
+    event: 'start' | 'end' | 'result' | 'error' | 'speechstart' | 'volumechange',
+    listener: (
+      event: SpeechResultEvent | SpeechErrorEvent | SpeechVolumeEvent | null,
+    ) => void,
   ) => { remove: () => void }
 }
 
