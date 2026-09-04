@@ -140,34 +140,6 @@ function DeviceAvatar({
   onLongPress,
 }: DeviceAvatarProps) {
   const insets = useSafeAreaInsets()
-  const ripple = useSharedValue(0)
-  const ripple2 = useSharedValue(0)
-
-  useEffect(() => {
-    if (speaking) {
-      ripple.value = 0
-      ripple2.value = 0
-      ripple.value = withRepeat(withTiming(1, { duration: 1300 }), -1, false)
-      ripple2.value = withDelay(
-        420,
-        withRepeat(withTiming(1, { duration: 1300 }), -1, false),
-      )
-      return
-    }
-
-    ripple.value = withTiming(0, { duration: 180 })
-    ripple2.value = withTiming(0, { duration: 180 })
-  }, [speaking, ripple, ripple2])
-
-  const rippleStyle = useAnimatedStyle(() => ({
-    opacity: speaking ? 0.32 * (1 - ripple.value) : 0,
-    transform: [{ scale: 1 + ripple.value * 0.55 }],
-  }))
-
-  const rippleStyle2 = useAnimatedStyle(() => ({
-    opacity: speaking ? 0.24 * (1 - ripple2.value) : 0,
-    transform: [{ scale: 1 + ripple2.value * 0.68 }],
-  }))
 
   return (
     <View style={[styles.deviceRoot, { paddingBottom: Math.max(insets.bottom, 12) }]}>
@@ -178,22 +150,7 @@ function DeviceAvatar({
         style={({ pressed }) => [styles.avatarWrap, pressed && styles.avatarPressed]}
       >
         <Animated.View style={styles.avatarStage}>
-          <Animated.View style={[styles.avatarRipple, styles.avatarRipplePrimary, rippleStyle]} />
-          <Animated.View style={[styles.avatarRipple, styles.avatarRippleSecondary, rippleStyle2]} />
-          <View
-            style={[
-              styles.avatarShell,
-              sleeping
-                ? styles.avatarShellSleeping
-                : thinking
-                  ? styles.avatarShellThinking
-                  : speaking
-                    ? styles.avatarShellSpeaking
-                    : listening
-                      ? styles.avatarShellListening
-                      : null,
-            ]}
-          >
+          <View style={styles.avatarShell}>
             <Image
               source={sleeping ? sleepingPigeonImage : pigeonImage}
               style={styles.avatarImageLarge}
@@ -278,20 +235,7 @@ export function LugeCompanion({
         style={({ pressed }) => [styles.avatarWrap, pressed && styles.avatarPressed]}
       >
         <View style={styles.avatarStage}>
-          <View
-            style={[
-              styles.avatarShell,
-              sleeping
-                ? styles.avatarShellSleeping
-                : thinking
-                  ? styles.avatarShellThinking
-                  : speaking
-                    ? styles.avatarShellSpeaking
-                    : listening
-                      ? styles.avatarShellListening
-                      : null,
-            ]}
-          >
+          <View style={styles.avatarShell}>
             <Image
               source={sleeping ? sleepingPigeonImage : pigeonImage}
               style={styles.avatarImageLarge}
@@ -389,52 +333,8 @@ const styles = StyleSheet.create({
   avatarShell: {
     width: 78,
     height: 78,
-    borderRadius: 39,
-    backgroundColor: '#dbeafe',
-    borderWidth: 2,
-    borderColor: 'rgba(96, 165, 250, 0.55)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: colors.radarGlow,
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
-  },
-  avatarShellListening: {
-    borderColor: colors.accent,
-    shadowOpacity: 0.55,
-    shadowRadius: 16,
-  },
-  avatarShellSpeaking: {
-    borderColor: '#34d399',
-    shadowColor: '#10b981',
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
-  },
-  avatarShellThinking: {
-    borderColor: 'rgba(96, 165, 250, 0.45)',
-    backgroundColor: '#e0e7ff',
-  },
-  avatarShellSleeping: {
-    borderColor: 'rgba(129, 140, 248, 0.55)',
-    backgroundColor: '#eef2ff',
-    shadowColor: '#6366f1',
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
-  },
-  avatarRipple: {
-    position: 'absolute',
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-    borderWidth: 2,
-  },
-  avatarRipplePrimary: {
-    borderColor: 'rgba(16, 185, 129, 0.36)',
-  },
-  avatarRippleSecondary: {
-    borderColor: 'rgba(52, 211, 153, 0.24)',
   },
   avatarListening: {
     borderColor: colors.accent,
