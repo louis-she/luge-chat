@@ -5,8 +5,8 @@ import { getProactivePoiContext } from './proactiveContext'
 import { getSpeechRecognitionModule, releaseMicForPlayback } from './speechRecognition'
 import type { UserCoords } from './location'
 
-/** 语音助手式窗口：首次/追问不说话 5 秒取消；有转写后按新结果静音收句。 */
-export const VOICE_INITIAL_TIMEOUT_MS = 5_000
+/** 首次唤醒后给用户 10 秒开口；追问仍为 5 秒；有转写后按新结果静音收句。 */
+export const VOICE_INITIAL_TIMEOUT_MS = 10_000
 export const VOICE_FOLLOW_UP_TIMEOUT_MS = 5_000
 export const VOICE_SILENCE_TIMEOUT_MS = 3_000
 
