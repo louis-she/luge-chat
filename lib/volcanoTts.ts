@@ -17,14 +17,6 @@ let warnedNoAudio = false
 let speakGeneration = 0
 let currentFetchController: AbortController | null = null
 
-const wakePromptAudioBySpeaker: Record<string, number> = {
-  zh_female_peiqi_uranus_bigtts: require('../assets/wake-prompt-peiqi.mp3'),
-  zh_female_vv_uranus_bigtts: require('../assets/wake-prompt-vivi.mp3'),
-  zh_female_xiaohe_uranus_bigtts: require('../assets/wake-prompt-xiaohe.mp3'),
-  zh_male_liufei_uranus_bigtts: require('../assets/wake-prompt-liufei.mp3'),
-  zh_male_m191_uranus_bigtts: require('../assets/wake-prompt-yunzhou.mp3'),
-}
-
 export type TtsPhase = 'preparing' | 'playing'
 
 class TtsCancelledError extends Error {
@@ -194,82 +186,6 @@ async function speakWithSystemVoice(text: string) {
       onError: fail,
     })
   })
-}
-
-/** 播放预先合成的固定唤醒提示，不走网络 TTS。 */
-async function playBundledAudio(source: number): Promise<void> {
-  const audio = loadAudio()
-  if (!audio) return
-
-  await stopVolcanoSpeech()
-  await ensurePlaybackAudioMode()
-  const player = audio.createAudioPlayer(source, {
-    updateInterval: 50,
-    keepAudioSessionActive: true,
-  })
-  currentPlayer = player
-
-  await new Promise<void>((resolve) => {
-    let settled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    const cleanup = () => {
-      if (timer) clearTimeout(timer)
-      listener.remove()
-      if (currentPlayer === player) currentPlayer = null
-      try {
-        player.release()
-      } catch {
-        /* ignore */
-      }
-    }
-
-    const finish = (reason: string) => {
-      if (settled) return
-      settled = true
-      cleanup()
-      if (__DEV__) console.log(`[luge tts] 唤醒提示播放完成 (${reason})`)
-      resolve()
-    }
-
-    const listener = player.addListener('playbackStatusUpdate', (status) => {
-      if (status.error) {
-        finish(`error: ${status.error}`)
-        return
-      }
-      if (status.didJustFinish) {
-        finish('didJustFinish')
-        return
-      }
-      if (
-        status.isLoaded &&
-        status.duration > 0 &&
-        status.playing === false &&
-        status.currentTime >= status.duration - 0.1
-      ) {
-        finish('end')
-      }
-    })
-
-    timer = setTimeout(() => finish('timeout'), 3_000)
-    try {
-      player.play()
-    } catch (error) {
-      finish(`play error: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  })
-}
-
-export async function playWakePrompt(): Promise<void> {
-  const source =
-    wakePromptAudioBySpeaker[getSelectedTtsSpeaker()] ??
-    wakePromptAudioBySpeaker.zh_female_peiqi_uranus_bigtts
-  try {
-    await playBundledAudio(source)
-  } catch (error) {
-    // 固定提示音失败不能阻断后续收音。
-    if (__DEV__) console.warn('[luge tts] 唤醒提示播放失败', error)
-  }
 }
 
 async function playMp3Base64(

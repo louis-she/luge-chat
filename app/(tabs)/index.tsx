@@ -508,6 +508,7 @@ export default function RadarScreen() {
           thinking={companionThinking}
           listening={voice.state === 'listening' || voice.state === 'follow_up'}
           speaking={companionSpeaking}
+          inputLevel={voice.inputLevel}
           sleeping={
             voice.state === 'idle' && !isSpeaking && !companionThinking
           }

@@ -28,8 +28,9 @@ type Props = {
   thinking?: boolean
   listening?: boolean
   speaking?: boolean
-  /** 真机：仅图标状态，无气泡、无需点击说话 */
+  /** 真机：路鸽与等待气泡组合 */
   deviceMode?: boolean
+  inputLevel?: number
   sleeping?: boolean
   onPress?: () => void
   onLongPress?: () => void
@@ -39,6 +40,7 @@ type DeviceAvatarProps = {
   thinking?: boolean
   listening?: boolean
   speaking?: boolean
+  inputLevel?: number
   sleeping?: boolean
   onPress?: () => void
   onLongPress?: () => void
@@ -128,6 +130,7 @@ function DeviceAvatar({
   listening,
   speaking,
   sleeping,
+  inputLevel,
   onPress,
   onLongPress,
 }: DeviceAvatarProps) {
@@ -162,10 +165,9 @@ function DeviceAvatar({
       </Pressable>
       {listening ? (
         <View style={[styles.bubble, styles.deviceListeningBubble]}>
-          <View style={styles.bubbleTail} />
           <View style={styles.listeningCol}>
             <Text style={styles.bubbleText}>请说话…</Text>
-            <VoiceWaveform active compact />
+            <VoiceWaveform active compact level={inputLevel} />
           </View>
         </View>
       ) : null}
@@ -180,6 +182,7 @@ export function LugeCompanion({
   listening,
   speaking,
   deviceMode,
+  inputLevel,
   sleeping,
   onPress,
   onLongPress,
@@ -190,6 +193,7 @@ export function LugeCompanion({
         thinking={thinking}
         listening={listening}
         speaking={speaking}
+        inputLevel={inputLevel}
         sleeping={sleeping}
         onPress={onPress}
         onLongPress={onLongPress}
@@ -255,13 +259,12 @@ export function LugeCompanion({
 
       {showBubble ? (
         <Animated.View style={[styles.bubble, bubbleStyle]}>
-          <View style={styles.bubbleTail} />
           {sleeping ? (
             <Text style={styles.bubbleText}>点击路鸽开始说话</Text>
           ) : listening ? (
             <View style={styles.listeningCol}>
               <Text style={styles.bubbleText}>{line || '请说话…'}</Text>
-              <VoiceWaveform active />
+              <VoiceWaveform active compact level={inputLevel} />
             </View>
           ) : thinking ? (
             <View style={styles.thinkingRow}>
@@ -436,7 +439,6 @@ const styles = StyleSheet.create({
     maxWidth: '78%',
     backgroundColor: 'rgba(17, 24, 39, 0.94)',
     borderRadius: 18,
-    borderTopLeftRadius: 6,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderWidth: 1,
@@ -444,23 +446,11 @@ const styles = StyleSheet.create({
   },
   deviceListeningBubble: {
     flex: 0,
-    width: 126,
-    maxWidth: 126,
-    paddingHorizontal: 12,
+    width: 150,
+    maxWidth: 150,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     marginBottom: 8,
-  },
-  bubbleTail: {
-    position: 'absolute',
-    left: -6,
-    bottom: 18,
-    width: 12,
-    height: 12,
-    backgroundColor: 'rgba(17, 24, 39, 0.94)',
-    borderLeftWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(96, 165, 250, 0.28)',
-    transform: [{ rotate: '45deg' }],
   },
   thinkingRow: {
     flexDirection: 'row',

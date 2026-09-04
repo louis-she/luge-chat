@@ -7,12 +7,15 @@ type Props = {
   /** 嵌入路鸽头像时使用 */
   compact?: boolean
   color?: string
+  /** ASR 原生音量归一化值（0 到 1）；不传时使用备用呼吸动画。 */
+  level?: number
 }
 
 export function VoiceWaveform({
   active,
   compact = false,
   color = colors.accent,
+  level,
 }: Props) {
   const barCount = compact ? 7 : 12
   const bars = useRef(
@@ -23,6 +26,23 @@ export function VoiceWaveform({
     if (!active) {
       bars.forEach((b) => b.setValue(0.2))
       return
+    }
+
+    if (level != null) {
+      const normalized = Math.max(0, Math.min(1, level))
+      const profile = compact
+        ? [0.42, 0.68, 0.92, 0.62, 1, 0.72, 0.45]
+        : [0.3, 0.42, 0.58, 0.75, 0.9, 1, 0.82, 0.64, 0.48, 0.7, 0.52, 0.34]
+      const animations = bars.map((bar, index) =>
+        Animated.timing(bar, {
+          toValue: 0.12 + normalized * (0.24 + profile[index] * 0.76),
+          duration: 90,
+          useNativeDriver: false,
+        }),
+      )
+      const animation = Animated.parallel(animations)
+      animation.start()
+      return () => animation.stop()
     }
 
     const animations = bars.map((bar, index) =>
@@ -44,7 +64,7 @@ export function VoiceWaveform({
 
     animations.forEach((a) => a.start())
     return () => animations.forEach((a) => a.stop())
-  }, [active, bars])
+  }, [active, bars, compact, level])
 
   const minH = compact ? 6 : 8
   const maxH = compact ? 28 : 44
@@ -82,12 +102,15 @@ const styles = StyleSheet.create({
   wrapCompact: {
     gap: 2,
     height: 32,
+    width: '100%',
+    alignSelf: 'stretch',
   },
   bar: {
     width: 4,
     borderRadius: 2,
   },
   barCompact: {
+    flex: 1,
     width: 3,
     borderRadius: 1.5,
   },
