@@ -58,6 +58,7 @@ export function useVoiceInteraction(opts: {
   const listen = useCallback((followUp: boolean) => {
     const mod = getSpeechRecognitionModule()
     if (!mod || !mod.isRecognitionAvailable()) {
+      if (__DEV__) console.warn('[voice interaction] 语音识别模块不可用')
       optsRef.current.onError?.('当前设备不支持语音识别')
       setPhase('idle')
       return
@@ -77,7 +78,11 @@ export function useVoiceInteraction(opts: {
       )
     }
     unsubsRef.current = [
+      mod.addListener('start', () => {
+        if (__DEV__) console.log('[voice interaction] ASR 已启动', { followUp })
+      }),
       mod.addListener('speechstart', () => {
+        if (__DEV__) console.log('[voice interaction] 检测到用户讲话')
         markSpeechActivity()
       }),
       mod.addListener('volumechange', (event) => {
@@ -91,6 +96,12 @@ export function useVoiceInteraction(opts: {
         if (!event || !('results' in event)) return
         const text = event.results?.[0]?.transcript?.trim() ?? ''
         if (!text) return
+        if (__DEV__) {
+          console.log('[voice interaction] ASR 结果', {
+            text,
+            isFinal: 'isFinal' in event ? event.isFinal : undefined,
+          })
+        }
         transcriptRef.current = text
         markSpeechActivity()
       }),
@@ -98,6 +109,7 @@ export function useVoiceInteraction(opts: {
         clearTimer()
         cleanupListeners()
         const text = transcriptRef.current.trim()
+        if (__DEV__) console.log('[voice interaction] ASR 结束', { text })
         if (!text || submittedRef.current) {
           setPhase('idle')
           return
@@ -131,9 +143,13 @@ export function useVoiceInteraction(opts: {
         if (__DEV__ && event) console.warn('[voice interaction]', event)
         clearTimer()
         cleanupListeners()
+        if (event && 'message' in event && event.message) {
+          optsRef.current.onError?.(`语音识别失败：${event.message}`)
+        }
         setPhase('idle')
       }),
     ]
+    if (__DEV__) console.log('[voice interaction] 请求启动 ASR', { followUp })
     try {
       mod.start({
         lang: 'zh-CN',
@@ -148,16 +164,31 @@ export function useVoiceInteraction(opts: {
         },
         volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
       })
-    } catch {
+    } catch (e) {
+      if (__DEV__) console.warn('[voice interaction] ASR 启动失败', e)
       cleanupListeners()
+      optsRef.current.onError?.('语音识别启动失败，请再试一次')
       setPhase('idle')
     }
   }, [cleanupListeners, clearTimer, finishListening, setPhase])
 
   const start = useCallback(async () => {
-    if (!optsRef.current.active || stateRef.current !== 'idle') return
+    if (!optsRef.current.active || stateRef.current !== 'idle') {
+      if (__DEV__) {
+        console.log('[voice interaction] 忽略启动', {
+          active: optsRef.current.active,
+          state: stateRef.current,
+        })
+      }
+      return
+    }
     const mod = getSpeechRecognitionModule()
-    if (!mod) return
+    if (!mod) {
+      if (__DEV__) console.warn('[voice interaction] 点击时未找到 ASR 模块')
+      optsRef.current.onError?.('当前设备不支持语音识别')
+      return
+    }
+    if (__DEV__) console.log('[voice interaction] 点击开始收音')
     const permission = await mod.requestPermissionsAsync()
     if (!permission.granted) {
       optsRef.current.onError?.('需要麦克风和语音识别权限')
