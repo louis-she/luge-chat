@@ -63,7 +63,7 @@ function SleepingBadge() {
       withRepeat(
         withSequence(
           withTiming(1, { duration: 1500, easing: Easing.out(Easing.cubic) }),
-          withTiming(0, { duration: 240, easing: Easing.in(Easing.quad) }),
+          withDelay(220, withTiming(0, { duration: 0 })),
         ),
         -1,
         false,
@@ -76,7 +76,7 @@ function SleepingBadge() {
   const firstStyle = useAnimatedStyle(() => {
     const progress = firstProgress.value
     const fadeIn = Math.min(1, progress / 0.16)
-    const fadeOut = Math.min(1, (1 - progress) / 0.28)
+    const fadeOut = Math.min(1, Math.max(0, (1 - progress) / 0.14))
 
     return {
       opacity: Math.min(fadeIn, fadeOut) * 0.92,
@@ -91,7 +91,7 @@ function SleepingBadge() {
   const secondStyle = useAnimatedStyle(() => {
     const progress = secondProgress.value
     const fadeIn = Math.min(1, progress / 0.16)
-    const fadeOut = Math.min(1, (1 - progress) / 0.28)
+    const fadeOut = Math.min(1, Math.max(0, (1 - progress) / 0.14))
 
     return {
       opacity: Math.min(fadeIn, fadeOut) * 0.92,
