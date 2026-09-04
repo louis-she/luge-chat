@@ -3,6 +3,7 @@ import { loadSession } from './auth'
 import { askLuge, LugeChatQuotaError } from './lugeChat'
 import { getProactivePoiContext } from './proactiveContext'
 import { getSpeechRecognitionModule, releaseMicForPlayback } from './speechRecognition'
+import { playWakePrompt } from './volcanoTts'
 import type { UserCoords } from './location'
 
 /** 语音助手式窗口：首次/追问不说话 5 秒取消；有转写后按新结果静音收句。 */
@@ -196,9 +197,12 @@ export function useVoiceInteraction(opts: {
       optsRef.current.onError?.('需要麦克风和语音识别权限')
       return
     }
+    setPhase('listening')
     await releaseMicForPlayback()
+    await playWakePrompt()
+    if (!optsRef.current.active) return
     listen(false)
-  }, [listen])
+  }, [listen, setPhase])
 
   const startFollowUp = useCallback(async () => {
     if (!optsRef.current.active || stateRef.current !== 'idle') return

@@ -115,30 +115,6 @@ function SleepingBadge() {
   )
 }
 
-function ListeningBadge() {
-  const progress = useSharedValue(0)
-
-  useEffect(() => {
-    progress.value = withRepeat(withTiming(1, { duration: 1000 }), -1, true)
-  }, [progress])
-
-  const waveStyle = useAnimatedStyle(() => ({
-    opacity: 0.48 + progress.value * 0.42,
-    transform: [
-      { translateX: progress.value * 3 },
-      { scale: 0.92 + progress.value * 0.08 },
-    ],
-  }))
-
-  return (
-    <Animated.View style={[styles.listeningWaves, waveStyle]} pointerEvents="none">
-      <View style={[styles.listeningWaveArc, styles.listeningWaveArcOuter]} />
-      <View style={[styles.listeningWaveArc, styles.listeningWaveArcMiddle]} />
-      <View style={[styles.listeningWaveArc, styles.listeningWaveArcInner]} />
-    </Animated.View>
-  )
-}
-
 function SpeakingBadge() {
   return (
     <View style={[styles.statusBadge, styles.statusBadgeSpeaking]}>
@@ -181,11 +157,18 @@ function DeviceAvatar({
             <SleepingBadge />
           ) : speaking ? (
             <SpeakingBadge />
-          ) : listening ? (
-            <ListeningBadge />
           ) : null}
         </Animated.View>
       </Pressable>
+      {listening ? (
+        <View style={[styles.bubble, styles.deviceListeningBubble]}>
+          <View style={styles.bubbleTail} />
+          <View style={styles.listeningCol}>
+            <Text style={styles.bubbleText}>请说话…</Text>
+            <VoiceWaveform active />
+          </View>
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -266,8 +249,6 @@ export function LugeCompanion({
             <SleepingBadge />
           ) : speaking ? (
             <SpeakingBadge />
-          ) : listening ? (
-            <ListeningBadge />
           ) : null}
         </View>
       </Pressable>
@@ -405,37 +386,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#bbf7d0',
     borderColor: '#34d399',
   },
-  listeningWaves: {
-    position: 'absolute',
-    top: 2,
-    right: -5,
-    width: 32,
-    height: 32,
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-  },
-  listeningWaveArc: {
-    position: 'absolute',
-    borderWidth: 2,
-    borderColor: 'transparent',
-    borderRightColor: '#38bdf8',
-    borderRadius: 32,
-  },
-  listeningWaveArcOuter: {
-    width: 27,
-    height: 31,
-    right: 0,
-  },
-  listeningWaveArcMiddle: {
-    width: 19,
-    height: 23,
-    right: 4,
-  },
-  listeningWaveArcInner: {
-    width: 11,
-    height: 15,
-    right: 8,
-  },
   sleepingBadge: {
     position: 'absolute',
     top: -22,
@@ -491,6 +441,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderWidth: 1,
     borderColor: 'rgba(96, 165, 250, 0.28)',
+  },
+  deviceListeningBubble: {
+    marginBottom: 8,
   },
   bubbleTail: {
     position: 'absolute',
