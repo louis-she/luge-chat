@@ -140,6 +140,12 @@ export function useVoiceInteraction(opts: {
         interimResults: true,
         continuous: true,
         addsPunctuation: true,
+        // 不使用 measurement，避免识别结束后把低输出的音频会话带给下一次 TTS。
+        iosCategory: {
+          category: 'playAndRecord',
+          categoryOptions: ['defaultToSpeaker', 'allowBluetooth'],
+          mode: 'default',
+        },
         volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
       })
     } catch {

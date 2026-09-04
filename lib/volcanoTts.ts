@@ -1,6 +1,9 @@
 import * as Speech from 'expo-speech'
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './config'
-import { releaseMicForPlayback } from './speechRecognition'
+import {
+  releaseMicForPlayback,
+  restorePlaybackAudioSession,
+} from './speechRecognition'
 import { getSelectedTtsSpeaker } from './ttsVoices'
 
 type ExpoAudio = typeof import('expo-audio')
@@ -57,6 +60,9 @@ async function ensurePlaybackAudioMode() {
     allowsRecording: false,
     interruptionMode: 'duckOthers',
   })
+  // expo-audio 和 expo-speech-recognition 都会修改同一个 AVAudioSession，
+  // 最后由识别模块明确设为 TTS 的 playback/voicePrompt，避免残留录音模式。
+  restorePlaybackAudioSession()
 }
 
 export async function stopVolcanoSpeech() {

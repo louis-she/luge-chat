@@ -20,6 +20,11 @@ export type SpeechRecognitionModule = {
     interimResults?: boolean
     continuous?: boolean
     addsPunctuation?: boolean
+    iosCategory?: {
+      category: 'playAndRecord'
+      categoryOptions: Array<'defaultToSpeaker' | 'allowBluetooth'>
+      mode?: 'default' | 'measurement'
+    }
     volumeChangeEventOptions?: {
       enabled?: boolean
       intervalMillis?: number
@@ -34,7 +39,17 @@ export type SpeechRecognitionModule = {
     listener: (
       event: SpeechResultEvent | SpeechErrorEvent | SpeechVolumeEvent | null,
     ) => void,
-  ) => { remove: () => void }
+    ) => { remove: () => void }
+  setCategoryIOS?: (options: {
+    category: 'playback'
+    categoryOptions: Array<'duckOthers'>
+    mode?: 'voicePrompt' | 'default'
+  }) => void
+  getAudioSessionCategoryAndOptionsIOS?: () => {
+    category: string
+    categoryOptions: string[]
+    mode: string
+  }
 }
 
 let cached: SpeechRecognitionModule | null | undefined
@@ -47,6 +62,26 @@ export function getSpeechRecognitionModule(): SpeechRecognitionModule | null {
   return cached
 }
 
+/** 恢复 TTS 专用音频会话，避免 ASR 的 measurement 模式压低扬声器输出。 */
+export function restorePlaybackAudioSession() {
+  const mod = getSpeechRecognitionModule()
+  try {
+    mod?.setCategoryIOS?.({
+      category: 'playback',
+      categoryOptions: ['duckOthers'],
+      mode: 'voicePrompt',
+    })
+    if (__DEV__) {
+      console.log(
+        '[luge audio] 恢复播放会话',
+        mod?.getAudioSessionCategoryAndOptionsIOS?.() ?? 'native audio session unavailable',
+      )
+    }
+  } catch (e) {
+    if (__DEV__) console.warn('[luge audio] 恢复播放会话失败', e)
+  }
+}
+
 /** TTS 播放前释放麦克风，避免 iOS 音频会话卡在录音模式 */
 export async function releaseMicForPlayback() {
   try {
@@ -54,5 +89,6 @@ export async function releaseMicForPlayback() {
   } catch {
     /* ignore */
   }
-  await new Promise((r) => setTimeout(r, 120))
+  restorePlaybackAudioSession()
+  await new Promise((r) => setTimeout(r, 220))
 }
