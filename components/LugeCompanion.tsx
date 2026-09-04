@@ -13,6 +13,7 @@ import Animated, {
   useSharedValue,
   withDelay,
   withRepeat,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated'
 import { useEffect, useState } from 'react'
@@ -28,9 +29,7 @@ type Props = {
   speaking?: boolean
   /** 真机：仅图标状态，无气泡、无需点击说话 */
   deviceMode?: boolean
-  micMuted?: boolean
-  menuOpen?: boolean
-  onToggleMic?: () => void
+  sleeping?: boolean
   onPress?: () => void
   onLongPress?: () => void
 }
@@ -39,11 +38,9 @@ type DeviceAvatarProps = {
   thinking?: boolean
   listening?: boolean
   speaking?: boolean
-  micMuted?: boolean
-  menuOpen?: boolean
+  sleeping?: boolean
   onPress?: () => void
   onLongPress?: () => void
-  onToggleMic?: () => void
 }
 
 const pigeonImage = require('../assets/luge-pigeon.png')
@@ -55,15 +52,59 @@ function ThinkingBadge() {
   )
 }
 
+function SleepingBadge() {
+  const progress = useSharedValue(0)
+
+  useEffect(() => {
+    progress.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1100 }),
+        withTiming(0, { duration: 0 }),
+      ),
+      -1,
+      false,
+    )
+  }, [progress])
+
+  const style = useAnimatedStyle(() => ({
+    opacity: 0.5 + progress.value * 0.5,
+    transform: [
+      { translateY: -progress.value * 8 },
+      { scale: 0.92 + progress.value * 0.08 },
+    ],
+  }))
+
+  return (
+    <Animated.View style={[styles.sleepingBadge, style]}>
+      <Text style={styles.sleepingZSmall}>z</Text>
+      <Text style={styles.sleepingZLarge}>Z</Text>
+    </Animated.View>
+  )
+}
+
+function ListeningBadge() {
+  return (
+    <View style={[styles.statusBadge, styles.statusBadgeListening]}>
+      <Ionicons name="mic" size={16} color="#0c4a6e" />
+    </View>
+  )
+}
+
+function SpeakingBadge() {
+  return (
+    <View style={[styles.statusBadge, styles.statusBadgeSpeaking]}>
+      <Ionicons name="volume-high" size={16} color="#064e3b" />
+    </View>
+  )
+}
+
 function DeviceAvatar({
   thinking,
   listening,
   speaking,
-  micMuted,
-  menuOpen,
+  sleeping,
   onPress,
   onLongPress,
-  onToggleMic,
 }: DeviceAvatarProps) {
   const insets = useSafeAreaInsets()
   const ripple = useSharedValue(0)
@@ -109,8 +150,8 @@ function DeviceAvatar({
           <View
             style={[
               styles.avatarShell,
-              micMuted
-                ? styles.avatarShellMuted
+              sleeping
+                ? styles.avatarShellSleeping
                 : thinking
                   ? styles.avatarShellThinking
                   : speaking
@@ -126,36 +167,15 @@ function DeviceAvatar({
             <View style={styles.thinkingBadgeWrap}>
               <ThinkingBadge />
             </View>
-          ) : micMuted ? (
-            <View style={[styles.statusBadge, styles.statusBadgeMuted]}>
-              <Ionicons name="mic-off" size={16} color="#fee2e2" />
-            </View>
+          ) : sleeping ? (
+            <SleepingBadge />
+          ) : speaking ? (
+            <SpeakingBadge />
+          ) : listening ? (
+            <ListeningBadge />
           ) : null}
         </Animated.View>
       </Pressable>
-
-      {menuOpen ? (
-        <View style={styles.actionBar}>
-          <Pressable
-            onPress={onToggleMic}
-            style={({ pressed }) => [
-              styles.actionBtn,
-              micMuted && styles.actionBtnActive,
-              pressed && styles.actionBtnPressed,
-            ]}
-            accessibilityLabel={micMuted ? '恢复收音' : '暂停收音'}
-          >
-            <Ionicons
-              name={micMuted ? 'mic-off' : 'mic'}
-              size={22}
-              color={micMuted ? colors.danger : colors.accent}
-            />
-            <Text style={[styles.actionLabel, micMuted && styles.actionLabelMuted]}>
-              {micMuted ? '已静音' : '收音'}
-            </Text>
-          </Pressable>
-        </View>
-      ) : null}
     </View>
   )
 }
@@ -167,9 +187,7 @@ export function LugeCompanion({
   listening,
   speaking,
   deviceMode,
-  micMuted,
-  menuOpen,
-  onToggleMic,
+  sleeping,
   onPress,
   onLongPress,
 }: Props) {
@@ -179,11 +197,9 @@ export function LugeCompanion({
         thinking={thinking}
         listening={listening}
         speaking={speaking}
-        micMuted={micMuted}
-        menuOpen={menuOpen}
+        sleeping={sleeping}
         onPress={onPress}
         onLongPress={onLongPress}
-        onToggleMic={onToggleMic}
       />
     )
   }
@@ -214,7 +230,7 @@ export function LugeCompanion({
     transform: [{ translateX: translateX.value }],
   }))
 
-  const showBubble = !!line || thinking || listening
+  const showBubble = !!line || thinking || listening || sleeping
 
   return (
     <View style={[styles.root, { paddingBottom: Math.max(insets.bottom, 12) }]}>
@@ -228,7 +244,15 @@ export function LugeCompanion({
           <View
             style={[
               styles.avatarShell,
-              thinking ? styles.avatarShellThinking : listening ? styles.avatarShellListening : null,
+              sleeping
+                ? styles.avatarShellSleeping
+                : thinking
+                  ? styles.avatarShellThinking
+                  : speaking
+                    ? styles.avatarShellSpeaking
+                    : listening
+                      ? styles.avatarShellListening
+                      : null,
             ]}
           >
             <Image source={pigeonImage} style={styles.avatarImageLarge} resizeMode="contain" />
@@ -237,6 +261,12 @@ export function LugeCompanion({
             <View style={styles.thinkingBadgeWrap}>
               <ThinkingBadge />
             </View>
+          ) : sleeping ? (
+            <SleepingBadge />
+          ) : speaking ? (
+            <SpeakingBadge />
+          ) : listening ? (
+            <ListeningBadge />
           ) : null}
         </View>
       </Pressable>
@@ -244,7 +274,9 @@ export function LugeCompanion({
       {showBubble ? (
         <Animated.View style={[styles.bubble, bubbleStyle]}>
           <View style={styles.bubbleTail} />
-          {listening ? (
+          {sleeping ? (
+            <Text style={styles.bubbleText}>点击路鸽开始说话</Text>
+          ) : listening ? (
             <View style={styles.listeningCol}>
               <Text style={styles.bubbleText}>{line || '请说话…'}</Text>
               <VoiceWaveform active />
@@ -283,43 +315,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 10,
     pointerEvents: 'box-none',
-  },
-  actionBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    backgroundColor: 'rgba(17, 24, 39, 0.92)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(96, 165, 250, 0.28)',
-  },
-  actionBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 56,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    backgroundColor: 'rgba(96, 165, 250, 0.12)',
-  },
-  actionBtnActive: {
-    backgroundColor: 'rgba(248, 113, 113, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(248, 113, 113, 0.35)',
-  },
-  actionBtnPressed: {
-    opacity: 0.85,
-  },
-  actionLabel: {
-    marginTop: 4,
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.radarMuted,
-  },
-  actionLabelMuted: {
-    color: colors.danger,
   },
   avatarWrap: {
     flexShrink: 0,
@@ -380,7 +375,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(96, 165, 250, 0.45)',
     backgroundColor: '#e0e7ff',
   },
-  avatarShellMuted: {
+  avatarShellSleeping: {
     borderColor: 'rgba(248, 113, 113, 0.55)',
     backgroundColor: '#fef2f2',
   },
@@ -446,9 +441,38 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 5,
   },
-  statusBadgeMuted: {
-    backgroundColor: 'rgba(127, 29, 29, 0.94)',
-    borderColor: 'rgba(248, 113, 113, 0.6)',
+  statusBadgeListening: {
+    backgroundColor: '#bae6fd',
+    borderColor: '#38bdf8',
+  },
+  statusBadgeSpeaking: {
+    backgroundColor: '#bbf7d0',
+    borderColor: '#34d399',
+  },
+  sleepingBadge: {
+    position: 'absolute',
+    top: -10,
+    right: -8,
+    width: 34,
+    height: 42,
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+  },
+  sleepingZSmall: {
+    position: 'absolute',
+    top: 12,
+    right: 14,
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sleepingZLarge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    color: '#475569',
+    fontSize: 22,
+    fontWeight: '800',
   },
   thinkingBadgeWrap: {
     position: 'absolute',

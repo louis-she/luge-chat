@@ -54,7 +54,6 @@ export default function RadarScreen() {
   const { settings: proactiveSettings, ready: proactiveReady } = useProactiveGuideSettings()
   const proactiveSpan = settingsToSpanConfig(proactiveSettings)
   const { quota, refreshQuota, showExhausted } = useQuota()
-  const [companionMenuOpen, setCompanionMenuOpen] = useState(false)
   const [proactiveMapOverlay, setProactiveMapOverlay] = useState<ProactiveMapOverlay>(
     () => ({
       ...EMPTY_PROACTIVE_MAP_OVERLAY,
@@ -96,7 +95,6 @@ export default function RadarScreen() {
 
   useEffect(() => {
     if (isActive) return
-    setCompanionMenuOpen(false)
     setStartError(null)
   }, [isActive])
 
@@ -114,15 +112,9 @@ export default function RadarScreen() {
   }, [startLuge, quota, showExhausted])
 
   const handleStopLuge = useCallback(() => {
-    setCompanionMenuOpen(false)
     void refreshQuota()
     stopLuge()
   }, [stopLuge, refreshQuota])
-
-  const handleAvatarPress = useCallback(() => {
-    if (!deviceMode) return
-    setCompanionMenuOpen((open) => !open)
-  }, [deviceMode])
 
   const voice = useVoiceInteraction({
     active: isActive,
@@ -526,10 +518,10 @@ export default function RadarScreen() {
           thinking={companionThinking}
           listening={voice.state === 'listening' || voice.state === 'follow_up'}
           speaking={companionSpeaking}
-          micMuted={false}
-          menuOpen={companionMenuOpen}
-          onToggleMic={() => void voice.start()}
-          onPress={handleAvatarPress}
+          sleeping={
+            voice.state === 'idle' && !isSpeaking && !companionThinking
+          }
+          onPress={() => void voice.start()}
           onLongPress={handleStopLuge}
         />
       )}
