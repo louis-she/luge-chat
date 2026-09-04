@@ -49,11 +49,11 @@ const sleepingPigeonImage = require('../assets/luge-pigeon-sleeping.png')
 const thinkingCloudImage = require('../assets/think-cloud.png')
 
 const LISTENING_PROMPTS = [
-  '请告诉我你想了解什么',
-  '在呢，想聊聊眼前这个地方吗？',
-  '你对这里的历史、风景还是路线感兴趣？',
-  '有什么地方或故事想问问我？',
-  '想知道附近有什么值得去看看的吗？',
+  '请告诉我你想了解什么...',
+  '在呢，想聊聊眼前这个地方吗...',
+  '你对这里的历史、风景还是路线感兴趣...',
+  '有什么地方或故事想问问我...',
+  '想知道附近有什么值得去看看的吗...',
 ]
 
 function useListeningPrompt(listening?: boolean) {
@@ -456,12 +456,12 @@ const styles = StyleSheet.create({
   bubble: {
     flex: 1,
     maxWidth: '78%',
-    backgroundColor: 'rgba(17, 24, 39, 0.94)',
+    backgroundColor: '#ffffff',
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: 'rgba(96, 165, 250, 0.28)',
+    borderColor: 'rgba(15, 23, 42, 0.12)',
   },
   deviceListeningBubble: {
     flex: 0,
@@ -474,13 +474,13 @@ const styles = StyleSheet.create({
   bubbleTail: {
     position: 'absolute',
     left: -6,
-    bottom: 18,
+    bottom: 30,
     width: 12,
     height: 12,
-    backgroundColor: 'rgba(17, 24, 39, 0.94)',
+    backgroundColor: '#ffffff',
     borderLeftWidth: 1,
     borderBottomWidth: 1,
-    borderColor: 'rgba(96, 165, 250, 0.28)',
+    borderColor: 'rgba(15, 23, 42, 0.12)',
     transform: [{ rotate: '45deg' }],
   },
   thinkingRow: {
@@ -493,7 +493,7 @@ const styles = StyleSheet.create({
   },
   bubbleText: {
     flex: 1,
-    color: colors.radarText,
+    color: '#111827',
     fontSize: 15,
     lineHeight: 22,
   },
