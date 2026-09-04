@@ -148,8 +148,8 @@ function AnimatedPigeon({
     if (speaking && !previousSpeaking.current) {
       headRotation.value = withRepeat(
         withSequence(
-          withTiming(-2, { duration: 620, easing: Easing.inOut(Easing.ease) }),
-          withTiming(2, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+          withTiming(-3, { duration: 620, easing: Easing.inOut(Easing.ease) }),
+          withTiming(3, { duration: 900, easing: Easing.inOut(Easing.ease) }),
           withTiming(0, { duration: 420, easing: Easing.inOut(Easing.ease) }),
         ),
         -1,
@@ -159,28 +159,28 @@ function AnimatedPigeon({
       headRotation.value = withTiming(0, { duration: 180 })
     } else if (becameListening) {
       headRotation.value = withSequence(
-        withTiming(-4, { duration: 180, easing: Easing.inOut(Easing.ease) }),
-        withTiming(4, { duration: 220, easing: Easing.inOut(Easing.ease) }),
-        withTiming(-3, { duration: 180, easing: Easing.inOut(Easing.ease) }),
-        withTiming(3, { duration: 220, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-7, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+        withTiming(7, { duration: 220, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-5, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+        withTiming(5, { duration: 220, easing: Easing.inOut(Easing.ease) }),
         withTiming(0, { duration: 220, easing: Easing.inOut(Easing.ease) }),
       )
       wingRotation.value = withSequence(
-        withTiming(3, { duration: 180, easing: Easing.inOut(Easing.ease) }),
-        withTiming(-3, { duration: 220, easing: Easing.inOut(Easing.ease) }),
-        withTiming(2, { duration: 180, easing: Easing.inOut(Easing.ease) }),
-        withTiming(-2, { duration: 220, easing: Easing.inOut(Easing.ease) }),
+        withTiming(6, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-6, { duration: 220, easing: Easing.inOut(Easing.ease) }),
+        withTiming(4, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-4, { duration: 220, easing: Easing.inOut(Easing.ease) }),
         withTiming(0, { duration: 220, easing: Easing.inOut(Easing.ease) }),
       )
     } else if (becameThinking || becameAwake) {
       headRotation.value = withSequence(
-        withTiming(-5, { duration: 260, easing: Easing.inOut(Easing.ease) }),
-        withTiming(4, { duration: 300, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-8, { duration: 260, easing: Easing.inOut(Easing.ease) }),
+        withTiming(7, { duration: 300, easing: Easing.inOut(Easing.ease) }),
         withTiming(0, { duration: 260, easing: Easing.inOut(Easing.ease) }),
       )
       wingRotation.value = withSequence(
-        withTiming(4, { duration: 260, easing: Easing.inOut(Easing.ease) }),
-        withTiming(-2, { duration: 300, easing: Easing.inOut(Easing.ease) }),
+        withTiming(7, { duration: 260, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-4, { duration: 300, easing: Easing.inOut(Easing.ease) }),
         withTiming(0, { duration: 260, easing: Easing.inOut(Easing.ease) }),
       )
     }
