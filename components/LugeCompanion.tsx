@@ -16,7 +16,6 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated'
-import { Path, Svg } from 'react-native-svg'
 import { useEffect, useState } from 'react'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { VoiceWaveform } from './VoiceWaveform'
@@ -104,28 +103,10 @@ function SleepingBadge() {
   return (
     <View style={styles.sleepingBadge} pointerEvents="none">
       <Animated.View style={[styles.sleepingZSmall, smallStyle]}>
-        <Svg width={18} height={18} viewBox="0 0 24 24">
-          <Path
-            d="M5 6h14L5 18h14"
-            fill="none"
-            stroke="#4f8fe8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={4}
-          />
-        </Svg>
+        <Text style={styles.sleepingZSmallText}>z</Text>
       </Animated.View>
       <Animated.View style={[styles.sleepingZLarge, largeStyle]}>
-        <Svg width={28} height={28} viewBox="0 0 24 24">
-          <Path
-            d="M4 5h16L4 19h16"
-            fill="none"
-            stroke="#5d94e5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={4}
-          />
-        </Svg>
+        <Text style={styles.sleepingZLargeText}>Z</Text>
       </Animated.View>
     </View>
   )
@@ -523,12 +504,24 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
   },
+  sleepingZSmallText: {
+    color: '#4f8fe8',
+    fontSize: 17,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
   sleepingZLarge: {
     position: 'absolute',
     right: 0,
     top: 0,
     width: 28,
     height: 28,
+  },
+  sleepingZLargeText: {
+    color: '#5d94e5',
+    fontSize: 27,
+    fontWeight: '800',
+    lineHeight: 28,
   },
   thinkingBadgeWrap: {
     position: 'absolute',
