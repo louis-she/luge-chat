@@ -5,7 +5,7 @@ import { getProactivePoiContext } from './proactiveContext'
 import { getSpeechRecognitionModule, releaseMicForPlayback } from './speechRecognition'
 import type { UserCoords } from './location'
 
-/** 语音助手式窗口：首次/追问不说话 5 秒取消，之后按音量静音收句。 */
+/** 语音助手式窗口：首次/追问不说话 5 秒取消；有转写后按新结果静音收句。 */
 export const VOICE_INITIAL_TIMEOUT_MS = 5_000
 export const VOICE_FOLLOW_UP_TIMEOUT_MS = 5_000
 export const VOICE_SILENCE_TIMEOUT_MS = 3_000
@@ -88,7 +88,13 @@ export function useVoiceInteraction(opts: {
       mod.addListener('volumechange', (event) => {
         if (!event || !('value' in event)) return
         const value = Number(event.value)
-        if (Number.isFinite(value) && value >= VOICE_ACTIVITY_THRESHOLD) {
+        // ASR 已经有文字后，音量事件可能只是车内/路边环境噪声，不能继续
+        // 延长收句计时；这时只让新的转写结果续命。
+        if (
+          Number.isFinite(value) &&
+          value >= VOICE_ACTIVITY_THRESHOLD &&
+          !transcriptRef.current.trim()
+        ) {
           markSpeechActivity()
         }
       }),
@@ -102,6 +108,7 @@ export function useVoiceInteraction(opts: {
             isFinal: 'isFinal' in event ? event.isFinal : undefined,
           })
         }
+        if (text === transcriptRef.current) return
         transcriptRef.current = text
         markSpeechActivity()
       }),
