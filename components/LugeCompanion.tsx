@@ -16,6 +16,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated'
+import { Path, Svg } from 'react-native-svg'
 import { useEffect, useState } from 'react'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { VoiceWaveform } from './VoiceWaveform'
@@ -44,6 +45,7 @@ type DeviceAvatarProps = {
 }
 
 const pigeonImage = require('../assets/luge-pigeon.png')
+const sleepingPigeonImage = require('../assets/luge-pigeon-sleeping.png')
 const thinkingCloudImage = require('../assets/think-cloud.png')
 
 function ThinkingBadge() {
@@ -53,32 +55,79 @@ function ThinkingBadge() {
 }
 
 function SleepingBadge() {
-  const progress = useSharedValue(0)
+  const smallProgress = useSharedValue(0)
+  const largeProgress = useSharedValue(0)
 
   useEffect(() => {
-    progress.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 1100 }),
-        withTiming(0, { duration: 0 }),
+    smallProgress.value = withRepeat(
+      withDelay(
+        180,
+        withSequence(
+          withTiming(1, { duration: 1050 }),
+          withTiming(0, { duration: 120 }),
+        ),
       ),
       -1,
       false,
     )
-  }, [progress])
+    largeProgress.value = withRepeat(
+      withDelay(
+        620,
+        withSequence(
+          withTiming(1, { duration: 1250 }),
+          withTiming(0, { duration: 140 }),
+        ),
+      ),
+      -1,
+      false,
+    )
+  }, [largeProgress, smallProgress])
 
-  const style = useAnimatedStyle(() => ({
-    opacity: 0.5 + progress.value * 0.5,
+  const smallStyle = useAnimatedStyle(() => ({
+    opacity: 0.25 + smallProgress.value * 0.75,
     transform: [
-      { translateY: -progress.value * 8 },
-      { scale: 0.92 + progress.value * 0.08 },
+      { translateY: -smallProgress.value * 9 },
+      { translateX: smallProgress.value * 3 },
+      { scale: 0.82 + smallProgress.value * 0.18 },
+    ],
+  }))
+
+  const largeStyle = useAnimatedStyle(() => ({
+    opacity: 0.25 + largeProgress.value * 0.75,
+    transform: [
+      { translateY: -largeProgress.value * 12 },
+      { translateX: largeProgress.value * 4 },
+      { scale: 0.84 + largeProgress.value * 0.16 },
     ],
   }))
 
   return (
-    <Animated.View style={[styles.sleepingBadge, style]}>
-      <Text style={styles.sleepingZSmall}>z</Text>
-      <Text style={styles.sleepingZLarge}>Z</Text>
-    </Animated.View>
+    <View style={styles.sleepingBadge} pointerEvents="none">
+      <Animated.View style={[styles.sleepingZSmall, smallStyle]}>
+        <Svg width={18} height={18} viewBox="0 0 24 24">
+          <Path
+            d="M5 6h14L5 18h14"
+            fill="none"
+            stroke="#4f8fe8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={4}
+          />
+        </Svg>
+      </Animated.View>
+      <Animated.View style={[styles.sleepingZLarge, largeStyle]}>
+        <Svg width={28} height={28} viewBox="0 0 24 24">
+          <Path
+            d="M4 5h16L4 19h16"
+            fill="none"
+            stroke="#5d94e5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={4}
+          />
+        </Svg>
+      </Animated.View>
+    </View>
   )
 }
 
@@ -161,7 +210,11 @@ function DeviceAvatar({
                       : null,
             ]}
           >
-            <Image source={pigeonImage} style={styles.avatarImageLarge} resizeMode="contain" />
+            <Image
+              source={sleeping ? sleepingPigeonImage : pigeonImage}
+              style={styles.avatarImageLarge}
+              resizeMode="contain"
+            />
           </View>
           {thinking ? (
             <View style={styles.thinkingBadgeWrap}>
@@ -255,7 +308,11 @@ export function LugeCompanion({
                       : null,
             ]}
           >
-            <Image source={pigeonImage} style={styles.avatarImageLarge} resizeMode="contain" />
+            <Image
+              source={sleeping ? sleepingPigeonImage : pigeonImage}
+              style={styles.avatarImageLarge}
+              resizeMode="contain"
+            />
           </View>
           {thinking ? (
             <View style={styles.thinkingBadgeWrap}>
@@ -376,8 +433,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#e0e7ff',
   },
   avatarShellSleeping: {
-    borderColor: 'rgba(248, 113, 113, 0.55)',
-    backgroundColor: '#fef2f2',
+    borderColor: 'rgba(129, 140, 248, 0.55)',
+    backgroundColor: '#eef2ff',
+    shadowColor: '#6366f1',
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
   },
   avatarRipple: {
     position: 'absolute',
@@ -451,28 +511,24 @@ const styles = StyleSheet.create({
   },
   sleepingBadge: {
     position: 'absolute',
-    top: -10,
-    right: -8,
-    width: 34,
-    height: 42,
-    alignItems: 'flex-end',
-    justifyContent: 'flex-end',
+    top: -22,
+    right: -18,
+    width: 52,
+    height: 62,
   },
   sleepingZSmall: {
     position: 'absolute',
-    top: 12,
-    right: 14,
-    color: '#64748b',
-    fontSize: 13,
-    fontWeight: '700',
+    left: 5,
+    top: 27,
+    width: 18,
+    height: 18,
   },
   sleepingZLarge: {
     position: 'absolute',
-    top: 0,
     right: 0,
-    color: '#475569',
-    fontSize: 22,
-    fontWeight: '800',
+    top: 0,
+    width: 28,
+    height: 28,
   },
   thinkingBadgeWrap: {
     position: 'absolute',
