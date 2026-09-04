@@ -287,7 +287,7 @@ export function LugeCompanion({
             </View>
           ) : thinking ? (
             <View style={styles.thinkingRow}>
-              <ActivityIndicator size="small" color={colors.accent} />
+              <ActivityIndicator size="small" color="#ffffff" />
               <Text style={styles.bubbleText}>{line ?? '路鸽在想…'}</Text>
             </View>
           ) : (
@@ -456,12 +456,15 @@ const styles = StyleSheet.create({
   bubble: {
     flex: 1,
     maxWidth: '78%',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#086bff',
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(15, 23, 42, 0.12)',
+    shadowColor: '#0758d8',
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   deviceListeningBubble: {
     flex: 0,
@@ -477,10 +480,7 @@ const styles = StyleSheet.create({
     bottom: 30,
     width: 12,
     height: 12,
-    backgroundColor: '#ffffff',
-    borderLeftWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(15, 23, 42, 0.12)',
+    backgroundColor: '#086bff',
     transform: [{ rotate: '45deg' }],
   },
   thinkingRow: {
@@ -493,7 +493,7 @@ const styles = StyleSheet.create({
   },
   bubbleText: {
     flex: 1,
-    color: '#111827',
+    color: '#ffffff',
     fontSize: 15,
     lineHeight: 22,
   },
