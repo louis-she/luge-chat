@@ -165,7 +165,7 @@ function DeviceAvatar({
           <View style={styles.bubbleTail} />
           <View style={styles.listeningCol}>
             <Text style={styles.bubbleText}>请说话…</Text>
-            <VoiceWaveform active />
+            <VoiceWaveform active compact />
           </View>
         </View>
       ) : null}
@@ -443,6 +443,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(96, 165, 250, 0.28)',
   },
   deviceListeningBubble: {
+    flex: 0,
+    width: 126,
+    maxWidth: 126,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     marginBottom: 8,
   },
   bubbleTail: {
