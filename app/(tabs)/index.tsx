@@ -504,7 +504,6 @@ export default function RadarScreen() {
       ) : (
         <LugeCompanion
           deviceMode={deviceMode}
-          speech={null}
           thinking={companionThinking}
           listening={voice.state === 'listening' || voice.state === 'follow_up'}
           speaking={companionSpeaking}

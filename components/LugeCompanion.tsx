@@ -1,5 +1,4 @@
 import {
-  ActivityIndicator,
   Image,
   Pressable,
   StyleSheet,
@@ -9,7 +8,6 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import Animated, {
   Easing,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -17,13 +15,11 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { BUBBLE_FADE_MS } from '../lib/bubbleTiming'
 import { colors } from '../lib/theme'
 
 type Props = {
-  speech: string | null
   thinking?: boolean
   listening?: boolean
   speaking?: boolean
@@ -38,35 +34,16 @@ type DeviceAvatarProps = {
   thinking?: boolean
   listening?: boolean
   speaking?: boolean
-  listeningPrompt: string
   sleeping?: boolean
   onPress?: () => void
   onLongPress?: () => void
 }
 
-const pigeonImage = require('../assets/luge-pigeon.png')
+const pigeonBodyImage = require('../assets/luge-pigeon-body.png')
+const pigeonHeadImage = require('../assets/luge-pigeon-head.png')
+const pigeonWingImage = require('../assets/luge-pigeon-wing.png')
 const sleepingPigeonImage = require('../assets/luge-pigeon-sleeping.png')
 const thinkingCloudImage = require('../assets/think-cloud.png')
-
-const LISTENING_PROMPTS = [
-  '请告诉我你想了解什么...',
-  '在呢，想聊聊眼前这个地方吗...',
-  '你对这里的历史、风景还是路线感兴趣...',
-  '有什么地方或故事想问问我...',
-  '想知道附近有什么值得去看看的吗...',
-]
-
-function useListeningPrompt(listening?: boolean) {
-  const [prompt, setPrompt] = useState(LISTENING_PROMPTS[0])
-
-  useEffect(() => {
-    if (!listening) return
-    const index = Math.floor(Math.random() * LISTENING_PROMPTS.length)
-    setPrompt(LISTENING_PROMPTS[index])
-  }, [listening])
-
-  return prompt
-}
 
 function ThinkingBadge() {
   return (
@@ -143,12 +120,124 @@ function SpeakingBadge() {
   )
 }
 
+type PigeonCharacterProps = {
+  sleeping?: boolean
+  listening?: boolean
+  thinking?: boolean
+  speaking?: boolean
+}
+
+function AnimatedPigeon({
+  sleeping,
+  listening,
+  thinking,
+  speaking,
+}: PigeonCharacterProps) {
+  const headRotation = useSharedValue(0)
+  const wingRotation = useSharedValue(0)
+  const previousSleeping = useRef(Boolean(sleeping))
+  const previousListening = useRef(Boolean(listening))
+  const previousThinking = useRef(Boolean(thinking))
+  const previousSpeaking = useRef(Boolean(speaking))
+
+  useEffect(() => {
+    const becameListening = Boolean(listening) && !previousListening.current
+    const becameThinking = Boolean(thinking) && !previousThinking.current
+    const becameAwake = previousSleeping.current && !sleeping
+
+    if (speaking && !previousSpeaking.current) {
+      headRotation.value = withRepeat(
+        withSequence(
+          withTiming(-2, { duration: 620, easing: Easing.inOut(Easing.ease) }),
+          withTiming(2, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 420, easing: Easing.inOut(Easing.ease) }),
+        ),
+        -1,
+        false,
+      )
+    } else if (!speaking && previousSpeaking.current) {
+      headRotation.value = withTiming(0, { duration: 180 })
+    } else if (becameListening) {
+      headRotation.value = withSequence(
+        withTiming(-4, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+        withTiming(4, { duration: 220, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-3, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+        withTiming(3, { duration: 220, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 220, easing: Easing.inOut(Easing.ease) }),
+      )
+      wingRotation.value = withSequence(
+        withTiming(3, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-3, { duration: 220, easing: Easing.inOut(Easing.ease) }),
+        withTiming(2, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-2, { duration: 220, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 220, easing: Easing.inOut(Easing.ease) }),
+      )
+    } else if (becameThinking || becameAwake) {
+      headRotation.value = withSequence(
+        withTiming(-5, { duration: 260, easing: Easing.inOut(Easing.ease) }),
+        withTiming(4, { duration: 300, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 260, easing: Easing.inOut(Easing.ease) }),
+      )
+      wingRotation.value = withSequence(
+        withTiming(4, { duration: 260, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-2, { duration: 300, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 260, easing: Easing.inOut(Easing.ease) }),
+      )
+    }
+
+    previousSleeping.current = Boolean(sleeping)
+    previousListening.current = Boolean(listening)
+    previousThinking.current = Boolean(thinking)
+    previousSpeaking.current = Boolean(speaking)
+  }, [headRotation, listening, sleeping, speaking, thinking, wingRotation])
+
+  const headStyle = useAnimatedStyle(() => ({
+    transform: [{ rotateZ: `${headRotation.value}deg` }],
+  }))
+  const wingStyle = useAnimatedStyle(() => ({
+    transform: [{ rotateZ: `${wingRotation.value}deg` }],
+  }))
+
+  return (
+    <View style={styles.pigeonLayers} pointerEvents="none">
+      {sleeping ? (
+        <Image
+          source={sleepingPigeonImage}
+          style={styles.avatarImageLarge}
+          resizeMode="contain"
+        />
+      ) : (
+        <>
+          <Image
+            source={pigeonBodyImage}
+            style={styles.avatarImageLarge}
+            resizeMode="contain"
+          />
+          <Animated.View style={[styles.pigeonPivot, styles.pigeonHeadPivot, headStyle]}>
+            <Image
+              source={pigeonHeadImage}
+              style={[styles.pigeonPartImage, styles.pigeonHeadImage]}
+              resizeMode="contain"
+            />
+          </Animated.View>
+          <Animated.View style={[styles.pigeonPivot, styles.pigeonWingPivot, wingStyle]}>
+            <Image
+              source={pigeonWingImage}
+              style={[styles.pigeonPartImage, styles.pigeonWingImage]}
+              resizeMode="contain"
+            />
+          </Animated.View>
+        </>
+      )}
+    </View>
+  )
+}
+
 function DeviceAvatar({
   thinking,
   listening,
   speaking,
   sleeping,
-  listeningPrompt,
   onPress,
   onLongPress,
 }: DeviceAvatarProps) {
@@ -164,10 +253,11 @@ function DeviceAvatar({
       >
         <Animated.View style={styles.avatarStage}>
           <View style={styles.avatarShell}>
-            <Image
-              source={sleeping ? sleepingPigeonImage : pigeonImage}
-              style={styles.avatarImageLarge}
-              resizeMode="contain"
+            <AnimatedPigeon
+              sleeping={sleeping}
+              listening={listening}
+              thinking={thinking}
+              speaking={speaking}
             />
           </View>
           {thinking ? (
@@ -181,21 +271,12 @@ function DeviceAvatar({
           ) : null}
         </Animated.View>
       </Pressable>
-      {listening ? (
-        <View style={[styles.bubble, styles.deviceListeningBubble]}>
-          <View style={styles.bubbleTail} />
-          <View style={styles.listeningCol}>
-            <Text style={styles.bubbleText}>{listeningPrompt}</Text>
-          </View>
-        </View>
-      ) : null}
     </View>
   )
 }
 
 /** 路鸽形象占位，后续替换为精细卡通素材 */
 export function LugeCompanion({
-  speech,
   thinking,
   listening,
   speaking,
@@ -204,15 +285,12 @@ export function LugeCompanion({
   onPress,
   onLongPress,
 }: Props) {
-  const listeningPrompt = useListeningPrompt(listening)
-
   if (deviceMode) {
     return (
       <DeviceAvatar
         thinking={thinking}
         listening={listening}
         speaking={speaking}
-        listeningPrompt={listeningPrompt}
         sleeping={sleeping}
         onPress={onPress}
         onLongPress={onLongPress}
@@ -221,33 +299,6 @@ export function LugeCompanion({
   }
 
   const insets = useSafeAreaInsets()
-  const [line, setLine] = useState<string | null>(null)
-  const opacity = useSharedValue(0)
-  const translateX = useSharedValue(-12)
-
-  useEffect(() => {
-    if (speech) {
-      setLine(speech)
-      opacity.value = 0
-      translateX.value = -12
-      opacity.value = withTiming(1, { duration: 220 })
-      translateX.value = withTiming(0, { duration: 220 })
-      return
-    }
-
-    opacity.value = withTiming(0, { duration: BUBBLE_FADE_MS })
-    translateX.value = withTiming(-10, { duration: BUBBLE_FADE_MS }, (done) => {
-      if (done) runOnJS(setLine)(null)
-    })
-  }, [speech, opacity, translateX])
-
-  const bubbleStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ translateX: translateX.value }],
-  }))
-
-  const showBubble = !!line || thinking || listening || sleeping
-
   return (
     <View style={[styles.root, { paddingBottom: Math.max(insets.bottom, 12) }]}>
       <Pressable
@@ -258,10 +309,11 @@ export function LugeCompanion({
       >
         <View style={styles.avatarStage}>
           <View style={styles.avatarShell}>
-            <Image
-              source={sleeping ? sleepingPigeonImage : pigeonImage}
-              style={styles.avatarImageLarge}
-              resizeMode="contain"
+            <AnimatedPigeon
+              sleeping={sleeping}
+              listening={listening}
+              thinking={thinking}
+              speaking={speaking}
             />
           </View>
           {thinking ? (
@@ -276,25 +328,6 @@ export function LugeCompanion({
         </View>
       </Pressable>
 
-      {showBubble ? (
-        <Animated.View style={[styles.bubble, bubbleStyle]}>
-          <View style={styles.bubbleTail} />
-          {sleeping ? (
-            <Text style={styles.bubbleText}>点击路鸽开始说话</Text>
-          ) : listening ? (
-            <View style={styles.listeningCol}>
-              <Text style={styles.bubbleText}>{listeningPrompt}</Text>
-            </View>
-          ) : thinking ? (
-            <View style={styles.thinkingRow}>
-              <ActivityIndicator size="small" color="#ffffff" />
-              <Text style={styles.bubbleText}>{line ?? '路鸽在想…'}</Text>
-            </View>
-          ) : (
-            <Text style={styles.bubbleText}>{line}</Text>
-          )}
-        </Animated.View>
-      ) : null}
     </View>
   )
 }
@@ -386,6 +419,38 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
   },
+  pigeonLayers: {
+    width: 60,
+    height: 60,
+    position: 'relative',
+  },
+  pigeonPivot: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    overflow: 'visible',
+  },
+  pigeonHeadPivot: {
+    left: 43,
+    top: 24,
+  },
+  pigeonWingPivot: {
+    left: 40,
+    top: 20,
+  },
+  pigeonPartImage: {
+    position: 'absolute',
+    width: 60,
+    height: 60,
+  },
+  pigeonHeadImage: {
+    left: -43,
+    top: -24,
+  },
+  pigeonWingImage: {
+    left: -40,
+    top: -20,
+  },
   statusBadge: {
     position: 'absolute',
     top: 4,
@@ -452,50 +517,5 @@ const styles = StyleSheet.create({
   thinkingBadgeImage: {
     width: 32,
     height: 32,
-  },
-  bubble: {
-    flex: 1,
-    maxWidth: '78%',
-    backgroundColor: '#086bff',
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    shadowColor: '#0758d8',
-    shadowOpacity: 0.16,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  deviceListeningBubble: {
-    flex: 0,
-    width: 150,
-    maxWidth: 150,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    marginLeft: -8,
-    marginBottom: 16,
-  },
-  bubbleTail: {
-    position: 'absolute',
-    left: -6,
-    bottom: 22,
-    width: 12,
-    height: 12,
-    backgroundColor: '#086bff',
-    transform: [{ rotate: '45deg' }],
-  },
-  thinkingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  listeningCol: {
-    gap: 8,
-  },
-  bubbleText: {
-    flex: 1,
-    color: '#ffffff',
-    fontSize: 15,
-    lineHeight: 22,
   },
 })
