@@ -116,10 +116,26 @@ function SleepingBadge() {
 }
 
 function ListeningBadge() {
+  const progress = useSharedValue(0)
+
+  useEffect(() => {
+    progress.value = withRepeat(withTiming(1, { duration: 1000 }), -1, true)
+  }, [progress])
+
+  const waveStyle = useAnimatedStyle(() => ({
+    opacity: 0.48 + progress.value * 0.42,
+    transform: [
+      { translateX: progress.value * 3 },
+      { scale: 0.92 + progress.value * 0.08 },
+    ],
+  }))
+
   return (
-    <View style={[styles.statusBadge, styles.statusBadgeListening]}>
-      <Ionicons name="mic" size={16} color="#0c4a6e" />
-    </View>
+    <Animated.View style={[styles.listeningWaves, waveStyle]} pointerEvents="none">
+      <View style={[styles.listeningWaveArc, styles.listeningWaveArcOuter]} />
+      <View style={[styles.listeningWaveArc, styles.listeningWaveArcMiddle]} />
+      <View style={[styles.listeningWaveArc, styles.listeningWaveArcInner]} />
+    </Animated.View>
   )
 }
 
@@ -385,13 +401,40 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 5,
   },
-  statusBadgeListening: {
-    backgroundColor: '#bae6fd',
-    borderColor: '#38bdf8',
-  },
   statusBadgeSpeaking: {
     backgroundColor: '#bbf7d0',
     borderColor: '#34d399',
+  },
+  listeningWaves: {
+    position: 'absolute',
+    top: 2,
+    right: -5,
+    width: 32,
+    height: 32,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  listeningWaveArc: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: 'transparent',
+    borderRightColor: '#38bdf8',
+    borderRadius: 32,
+  },
+  listeningWaveArcOuter: {
+    width: 27,
+    height: 31,
+    right: 0,
+  },
+  listeningWaveArcMiddle: {
+    width: 19,
+    height: 23,
+    right: 4,
+  },
+  listeningWaveArcInner: {
+    width: 11,
+    height: 15,
+    right: 8,
   },
   sleepingBadge: {
     position: 'absolute',
