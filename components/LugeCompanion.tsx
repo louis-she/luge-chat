@@ -1,6 +1,5 @@
 import {
   ActivityIndicator,
-  Easing,
   Image,
   Pressable,
   StyleSheet,
@@ -9,6 +8,7 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import Animated, {
+  Easing,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
