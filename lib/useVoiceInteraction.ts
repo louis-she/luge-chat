@@ -9,7 +9,6 @@ import type { UserCoords } from './location'
 export const VOICE_INITIAL_TIMEOUT_MS = 5_000
 export const VOICE_FOLLOW_UP_TIMEOUT_MS = 5_000
 export const VOICE_SILENCE_TIMEOUT_MS = 3_000
-const VOICE_ACTIVITY_THRESHOLD = 0.5
 
 export type VoiceInteractionState = 'idle' | 'listening' | 'thinking' | 'follow_up'
 
@@ -85,19 +84,6 @@ export function useVoiceInteraction(opts: {
         if (__DEV__) console.log('[voice interaction] 检测到用户讲话')
         markSpeechActivity()
       }),
-      mod.addListener('volumechange', (event) => {
-        if (!event || !('value' in event)) return
-        const value = Number(event.value)
-        // ASR 已经有文字后，音量事件可能只是车内/路边环境噪声，不能继续
-        // 延长收句计时；这时只让新的转写结果续命。
-        if (
-          Number.isFinite(value) &&
-          value >= VOICE_ACTIVITY_THRESHOLD &&
-          !transcriptRef.current.trim()
-        ) {
-          markSpeechActivity()
-        }
-      }),
       mod.addListener('result', (event) => {
         if (!event || !('results' in event)) return
         const text = event.results?.[0]?.transcript?.trim() ?? ''
@@ -169,7 +155,6 @@ export function useVoiceInteraction(opts: {
           categoryOptions: ['defaultToSpeaker', 'allowBluetooth'],
           mode: 'default',
         },
-        volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
       })
     } catch (e) {
       if (__DEV__) console.warn('[voice interaction] ASR 启动失败', e)
