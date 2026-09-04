@@ -1,5 +1,6 @@
 import {
   ActivityIndicator,
+  Easing,
   Image,
   Pressable,
   StyleSheet,
@@ -54,59 +55,61 @@ function ThinkingBadge() {
 }
 
 function SleepingBadge() {
-  const smallProgress = useSharedValue(0)
-  const largeProgress = useSharedValue(0)
+  const firstProgress = useSharedValue(0)
+  const secondProgress = useSharedValue(0)
 
   useEffect(() => {
-    smallProgress.value = withRepeat(
-      withDelay(
-        180,
+    const createZCycle = () =>
+      withRepeat(
         withSequence(
-          withTiming(1, { duration: 1050 }),
-          withTiming(0, { duration: 120 }),
+          withTiming(1, { duration: 1500, easing: Easing.out(Easing.cubic) }),
+          withTiming(0, { duration: 240, easing: Easing.in(Easing.quad) }),
         ),
-      ),
-      -1,
-      false,
-    )
-    largeProgress.value = withRepeat(
-      withDelay(
-        620,
-        withSequence(
-          withTiming(1, { duration: 1250 }),
-          withTiming(0, { duration: 140 }),
-        ),
-      ),
-      -1,
-      false,
-    )
-  }, [largeProgress, smallProgress])
+        -1,
+        false,
+      )
 
-  const smallStyle = useAnimatedStyle(() => ({
-    opacity: 0.25 + smallProgress.value * 0.75,
-    transform: [
-      { translateY: -smallProgress.value * 9 },
-      { translateX: smallProgress.value * 3 },
-      { scale: 0.82 + smallProgress.value * 0.18 },
-    ],
-  }))
+    firstProgress.value = createZCycle()
+    secondProgress.value = withDelay(820, createZCycle())
+  }, [firstProgress, secondProgress])
 
-  const largeStyle = useAnimatedStyle(() => ({
-    opacity: 0.25 + largeProgress.value * 0.75,
-    transform: [
-      { translateY: -largeProgress.value * 12 },
-      { translateX: largeProgress.value * 4 },
-      { scale: 0.84 + largeProgress.value * 0.16 },
-    ],
-  }))
+  const firstStyle = useAnimatedStyle(() => {
+    const progress = firstProgress.value
+    const fadeIn = Math.min(1, progress / 0.16)
+    const fadeOut = Math.min(1, (1 - progress) / 0.28)
+
+    return {
+      opacity: Math.min(fadeIn, fadeOut) * 0.92,
+      transform: [
+        { translateX: progress * 8 },
+        { translateY: -progress * 34 },
+        { scale: 0.58 + progress * 0.72 },
+      ],
+    }
+  })
+
+  const secondStyle = useAnimatedStyle(() => {
+    const progress = secondProgress.value
+    const fadeIn = Math.min(1, progress / 0.16)
+    const fadeOut = Math.min(1, (1 - progress) / 0.28)
+
+    return {
+      opacity: Math.min(fadeIn, fadeOut) * 0.92,
+      transform: [
+        { translateX: progress * 8 },
+        { translateY: -progress * 34 },
+        { scale: 0.58 + progress * 0.72 },
+      ],
+    }
+  })
 
   return (
     <View style={styles.sleepingBadge} pointerEvents="none">
-      <Animated.View style={[styles.sleepingZSmall, smallStyle]}>
-        <Text style={styles.sleepingZSmallText}>z</Text>
+      <Animated.View style={[styles.sleepingZ, firstStyle]}>
+        <Text style={styles.sleepingZText}>z</Text>
       </Animated.View>
-      <Animated.View style={[styles.sleepingZLarge, largeStyle]}>
-        <Text style={styles.sleepingZLargeText}>Z</Text>
+      <Animated.View style={[styles.sleepingZ, styles.sleepingZSecond, secondStyle]}>
+        <Text style={styles.sleepingZText}>z</Text>
       </Animated.View>
     </View>
   )
@@ -497,31 +500,29 @@ const styles = StyleSheet.create({
     width: 52,
     height: 62,
   },
-  sleepingZSmall: {
+  sleepingZ: {
     position: 'absolute',
-    left: 5,
-    top: 27,
-    width: 18,
-    height: 18,
+    left: 1,
+    top: 29,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  sleepingZSmallText: {
-    color: '#4f8fe8',
-    fontSize: 17,
-    fontWeight: '700',
-    lineHeight: 18,
+  sleepingZSecond: {
+    left: 10,
+    top: 29,
   },
-  sleepingZLarge: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    width: 28,
-    height: 28,
-  },
-  sleepingZLargeText: {
+  sleepingZText: {
+    backgroundColor: 'transparent',
     color: '#5d94e5',
-    fontSize: 27,
+    fontSize: 20,
     fontWeight: '800',
-    lineHeight: 28,
+    includeFontPadding: false,
+    lineHeight: 24,
+    textShadowColor: 'rgba(59, 130, 246, 0.18)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   thinkingBadgeWrap: {
     position: 'absolute',
