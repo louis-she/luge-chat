@@ -16,6 +16,8 @@ import { speakVolcano, stopVolcanoSpeech, type TtsPhase } from './volcanoTts'
 type SayOptions = {
   /** 主动讲解内容写入近期对话，便于用户追问「刚才那个」 */
   recordProactive?: boolean
+  /** TTS 真正进入播放时通知调用方 */
+  onPhase?: (phase: TtsPhase) => void
 }
 
 type LugeContextValue = {
@@ -76,7 +78,12 @@ export function LugeProvider({ children }: { children: ReactNode }) {
           sessionRef.current = session?.access_token ?? null
           ttsToken = sessionRef.current
         }
-        await speakVolcano(text, ttsToken, { onPhase: setSpeechPhase })
+        await speakVolcano(text, ttsToken, {
+          onPhase: (phase) => {
+            setSpeechPhase(phase)
+            options?.onPhase?.(phase)
+          },
+        })
         if (options?.recordProactive && text.trim()) {
           chatWindowRef.current.appendProactive(text.trim())
         }

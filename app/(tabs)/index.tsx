@@ -62,36 +62,19 @@ export default function RadarScreen() {
   )
   const proactiveCandidatesRef = useRef<ProactiveMapMarker[]>([])
   const [speakFocus, setSpeakFocus] = useState<SpeakFocusPoi | null>(null)
-  const speakFocusClearRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const clearSpeakFocusTimer = useCallback(() => {
-    if (speakFocusClearRef.current) {
-      clearTimeout(speakFocusClearRef.current)
-      speakFocusClearRef.current = null
-    }
+  const activateSpeakFocus = useCallback((poi: SpeakFocusPoi) => {
+    setSpeakFocus(poi)
   }, [])
 
-  const activateSpeakFocus = useCallback(
-    (poi: SpeakFocusPoi, textLen: number) => {
-      clearSpeakFocusTimer()
-      setSpeakFocus(poi)
-      // 约 4 字/秒，夹在 12～45s
-      const ms = Math.min(45_000, Math.max(12_000, Math.round((textLen / 4) * 1000)))
-      speakFocusClearRef.current = setTimeout(() => {
-        speakFocusClearRef.current = null
-        setSpeakFocus(null)
-      }, ms)
-    },
-    [clearSpeakFocusTimer],
-  )
-
-  useEffect(() => () => clearSpeakFocusTimer(), [clearSpeakFocusTimer])
+  const deactivateSpeakFocus = useCallback(() => {
+    setSpeakFocus(null)
+  }, [])
 
   useEffect(() => {
     if (isActive) return
-    clearSpeakFocusTimer()
     setSpeakFocus(null)
-  }, [isActive, clearSpeakFocusTimer])
+  }, [isActive])
 
   useEffect(() => {
     if (isActive) return
@@ -154,26 +137,33 @@ export default function RadarScreen() {
         lng?: number | null
       },
     ) => {
-      if (
+      const focusPoi =
         meta?.lat != null &&
         meta?.lng != null &&
         Number.isFinite(meta.lat) &&
         Number.isFinite(meta.lng)
-      ) {
-        activateSpeakFocus(
-          {
-            lat: meta.lat,
-            lng: meta.lng,
-            name: (meta.topicPoi?.trim() || '正在讲解').slice(0, 40),
-            at: Date.now(),
+          ? {
+              lat: meta.lat,
+              lng: meta.lng,
+              name: (meta.topicPoi?.trim() || '正在讲解').slice(0, 40),
+            }
+          : null
+      let focusActivated = false
+      try {
+        await say(text, accessToken, {
+          recordProactive: true,
+          onPhase: (phase) => {
+            if (phase !== 'playing' || focusActivated || !focusPoi) return
+            focusActivated = true
+            activateSpeakFocus({ ...focusPoi, at: Date.now() })
           },
-          text.trim().length,
-        )
+        })
+      } finally {
+        if (focusActivated) deactivateSpeakFocus()
       }
-      await say(text, accessToken, { recordProactive: true })
       if (isActive) await voice.startFollowUp()
     },
-    [say, isActive, voice.startFollowUp, activateSpeakFocus],
+    [say, isActive, voice.startFollowUp, activateSpeakFocus, deactivateSpeakFocus],
   )
 
   const handleProactiveDevOverlay = useCallback((patch: ProactiveDevOverlay) => {
@@ -592,7 +582,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 12,
     right: 12,
-    bottom: 100,
+    top: 132,
     backgroundColor: 'rgba(15, 23, 42, 0.78)',
     paddingHorizontal: 10,
     paddingVertical: 8,
