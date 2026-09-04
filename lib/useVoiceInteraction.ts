@@ -22,7 +22,6 @@ export function useVoiceInteraction(opts: {
   onQuotaExhausted?: (e: LugeChatQuotaError) => void
 }) {
   const [state, setState] = useState<VoiceInteractionState>('idle')
-  const [inputLevel, setInputLevel] = useState(0)
   const stateRef = useRef<VoiceInteractionState>('idle')
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const transcriptRef = useRef('')
@@ -48,7 +47,6 @@ export function useVoiceInteraction(opts: {
 
   const finishListening = useCallback(() => {
     clearTimer()
-    setInputLevel(0)
     try {
       getSpeechRecognitionModule()?.stop()
     } catch {
@@ -68,7 +66,6 @@ export function useVoiceInteraction(opts: {
     clearTimer()
     transcriptRef.current = ''
     submittedRef.current = false
-    setInputLevel(0)
     setPhase(followUp ? 'follow_up' : 'listening')
     const timeout = followUp ? VOICE_FOLLOW_UP_TIMEOUT_MS : VOICE_INITIAL_TIMEOUT_MS
     timerRef.current = setTimeout(() => finishListening(), timeout)
@@ -86,13 +83,6 @@ export function useVoiceInteraction(opts: {
       mod.addListener('speechstart', () => {
         if (__DEV__) console.log('[voice interaction] 检测到用户讲话')
         markSpeechActivity()
-      }),
-      mod.addListener('volumechange', (event) => {
-        if (!event || !('value' in event)) return
-        const value = Number(event.value)
-        if (!Number.isFinite(value)) return
-        // 原生模块的音量值约为 -2（静音）到 10（较大声音），仅用于可视化。
-        setInputLevel(Math.max(0, Math.min(1, (value + 2) / 10)))
       }),
       mod.addListener('result', (event) => {
         if (!event || !('results' in event)) return
@@ -169,10 +159,6 @@ export function useVoiceInteraction(opts: {
         interimResults: true,
         continuous: true,
         addsPunctuation: true,
-        volumeChangeEventOptions: {
-          enabled: true,
-          intervalMillis: 100,
-        },
         // 不使用 measurement，避免识别结束后把低输出的音频会话带给下一次 TTS。
         iosCategory: {
           category: 'playAndRecord',
@@ -231,7 +217,6 @@ export function useVoiceInteraction(opts: {
       /* ignore */
     }
     setPhase('idle')
-    setInputLevel(0)
   }, [opts.active, clearTimer, cleanupListeners, setPhase])
 
   useEffect(() => () => {
@@ -244,5 +229,5 @@ export function useVoiceInteraction(opts: {
     }
   }, [clearTimer, cleanupListeners])
 
-  return { state, inputLevel, start, startFollowUp }
+  return { state, start, startFollowUp }
 }

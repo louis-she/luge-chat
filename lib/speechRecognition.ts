@@ -10,10 +10,6 @@ export type SpeechErrorEvent = {
   message: string
 }
 
-export type SpeechVolumeEvent = {
-  value: number
-}
-
 export type SpeechRecognitionModule = {
   start: (options: {
     lang?: string
@@ -25,19 +21,15 @@ export type SpeechRecognitionModule = {
       categoryOptions: Array<'defaultToSpeaker' | 'allowBluetooth'>
       mode?: 'default' | 'measurement'
     }
-    volumeChangeEventOptions?: {
-      enabled?: boolean
-      intervalMillis?: number
-    }
   }) => void
   stop: () => void
   abort: () => void
   isRecognitionAvailable: () => boolean
   requestPermissionsAsync: () => Promise<{ granted: boolean }>
   addListener: (
-    event: 'start' | 'end' | 'result' | 'error' | 'speechstart' | 'volumechange',
+    event: 'start' | 'end' | 'result' | 'error' | 'speechstart',
     listener: (
-      event: SpeechResultEvent | SpeechErrorEvent | SpeechVolumeEvent | null,
+      event: SpeechResultEvent | SpeechErrorEvent | null,
     ) => void,
     ) => { remove: () => void }
   setCategoryIOS?: (options: {

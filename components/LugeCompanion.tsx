@@ -19,7 +19,6 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useEffect, useState } from 'react'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { VoiceWaveform } from './VoiceWaveform'
 import { BUBBLE_FADE_MS } from '../lib/bubbleTiming'
 import { colors } from '../lib/theme'
 
@@ -30,7 +29,6 @@ type Props = {
   speaking?: boolean
   /** 真机：路鸽与等待气泡组合 */
   deviceMode?: boolean
-  inputLevel?: number
   sleeping?: boolean
   onPress?: () => void
   onLongPress?: () => void
@@ -40,7 +38,7 @@ type DeviceAvatarProps = {
   thinking?: boolean
   listening?: boolean
   speaking?: boolean
-  inputLevel?: number
+  listeningPrompt: string
   sleeping?: boolean
   onPress?: () => void
   onLongPress?: () => void
@@ -49,6 +47,26 @@ type DeviceAvatarProps = {
 const pigeonImage = require('../assets/luge-pigeon.png')
 const sleepingPigeonImage = require('../assets/luge-pigeon-sleeping.png')
 const thinkingCloudImage = require('../assets/think-cloud.png')
+
+const LISTENING_PROMPTS = [
+  '请告诉我你想了解什么',
+  '在呢，想聊聊眼前这个地方吗？',
+  '你对这里的历史、风景还是路线感兴趣？',
+  '有什么地方或故事想问问我？',
+  '想知道附近有什么值得去看看的吗？',
+]
+
+function useListeningPrompt(listening?: boolean) {
+  const [prompt, setPrompt] = useState(LISTENING_PROMPTS[0])
+
+  useEffect(() => {
+    if (!listening) return
+    const index = Math.floor(Math.random() * LISTENING_PROMPTS.length)
+    setPrompt(LISTENING_PROMPTS[index])
+  }, [listening])
+
+  return prompt
+}
 
 function ThinkingBadge() {
   return (
@@ -130,7 +148,7 @@ function DeviceAvatar({
   listening,
   speaking,
   sleeping,
-  inputLevel,
+  listeningPrompt,
   onPress,
   onLongPress,
 }: DeviceAvatarProps) {
@@ -165,9 +183,9 @@ function DeviceAvatar({
       </Pressable>
       {listening ? (
         <View style={[styles.bubble, styles.deviceListeningBubble]}>
+          <View style={styles.bubbleTail} />
           <View style={styles.listeningCol}>
-            <Text style={styles.bubbleText}>请说话…</Text>
-            <VoiceWaveform active compact level={inputLevel} />
+            <Text style={styles.bubbleText}>{listeningPrompt}</Text>
           </View>
         </View>
       ) : null}
@@ -182,18 +200,19 @@ export function LugeCompanion({
   listening,
   speaking,
   deviceMode,
-  inputLevel,
   sleeping,
   onPress,
   onLongPress,
 }: Props) {
+  const listeningPrompt = useListeningPrompt(listening)
+
   if (deviceMode) {
     return (
       <DeviceAvatar
         thinking={thinking}
         listening={listening}
         speaking={speaking}
-        inputLevel={inputLevel}
+        listeningPrompt={listeningPrompt}
         sleeping={sleeping}
         onPress={onPress}
         onLongPress={onLongPress}
@@ -259,12 +278,12 @@ export function LugeCompanion({
 
       {showBubble ? (
         <Animated.View style={[styles.bubble, bubbleStyle]}>
+          <View style={styles.bubbleTail} />
           {sleeping ? (
             <Text style={styles.bubbleText}>点击路鸽开始说话</Text>
           ) : listening ? (
             <View style={styles.listeningCol}>
-              <Text style={styles.bubbleText}>{line || '请说话…'}</Text>
-              <VoiceWaveform active compact level={inputLevel} />
+              <Text style={styles.bubbleText}>{listeningPrompt}</Text>
             </View>
           ) : thinking ? (
             <View style={styles.thinkingRow}>
@@ -451,6 +470,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 8,
     marginBottom: 8,
+  },
+  bubbleTail: {
+    position: 'absolute',
+    left: -6,
+    bottom: 18,
+    width: 12,
+    height: 12,
+    backgroundColor: 'rgba(17, 24, 39, 0.94)',
+    borderLeftWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(96, 165, 250, 0.28)',
+    transform: [{ rotate: '45deg' }],
   },
   thinkingRow: {
     flexDirection: 'row',
