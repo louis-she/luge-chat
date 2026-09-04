@@ -136,8 +136,18 @@ export function useVoiceInteraction(opts: {
         if (__DEV__ && event) console.warn('[voice interaction]', event)
         clearTimer()
         cleanupListeners()
-        if (event && 'message' in event && event.message) {
-          optsRef.current.onError?.(`语音识别失败：${event.message}`)
+        const errorCode = event && 'error' in event ? String(event.error ?? '') : ''
+        const errorMessage = event && 'message' in event ? String(event.message ?? '') : ''
+        if (
+          errorCode === 'no-speech' ||
+          errorMessage.toLowerCase().includes('no speech')
+        ) {
+          if (__DEV__) console.log('[voice interaction] 忽略正常的无讲话事件')
+          setPhase('idle')
+          return
+        }
+        if (errorMessage) {
+          optsRef.current.onError?.(`语音识别失败：${errorMessage}`)
         }
         setPhase('idle')
       }),
